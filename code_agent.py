@@ -71,10 +71,10 @@ class MyCodeAgent:
                 # 将值替换为文件路径
                 processed_args[key] = temp_path
             try:
+                input += INSTRUCTION_FOR_AGENTS
                 final_output = self.main_agent.run(
-                    input + INSTRUCTION_FOR_AGENTS, 
-                    additional_args=processed_args,
-                    max_steps=max_steps,
+                    input, 
+                    additional_args=processed_args, 
                 )
             except Exception as e:
                 print(f"Agent RuntimeError: {e}")
@@ -108,4 +108,4 @@ if __name__ == "__main__":
         "计算给定的list中所有数字的累加求和",
         additional_args={'integer_list':[i for i in range(1, 101)]}
     )
-    print(result)
+    print(f"result: {result}")
