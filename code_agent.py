@@ -7,7 +7,7 @@ import tempfile
 import json
 
 
-
+from utils import logger
 from utils.prompts import get_instruction_for_agents
 from utils.temp_file import get_var_storage_info, save_variable_to_temp
 load_dotenv()
@@ -74,7 +74,7 @@ class MyCodeAgent:
                 
                 # 保存变量到临时文件
                 temp_path = save_variable_to_temp(key, value, suffix, type_name)
-                
+                logger.info(f"temp_path: {temp_path}")
                 file_paths[key] = temp_path
                 processed_args[key] = temp_path
                 var_type_info[key] = type_name
@@ -82,12 +82,13 @@ class MyCodeAgent:
             try:
                 # 生成包含读取示例的指令
                 input = get_instruction_for_agents(var_type_info) + input
+                logger.info(f"input: {input}")
                 final_output = self.main_agent.run(
                     input, 
                     additional_args=processed_args, 
                 )
             except Exception as e:
-                print(f"Agent RuntimeError: {e}")
+                logger.error(f"Agent RuntimeError: {e}")
                 return None
             finally:
                 # 清理临时文件
@@ -95,11 +96,11 @@ class MyCodeAgent:
                     try:
                         os.remove(temp_path)
                     except Exception as e:
-                        print(f"Warning: 无法删除临时文件 {temp_path}: {e}")
+                        logger.error(f"Warning: 无法删除临时文件 {temp_path}: {e}")
             
             return final_output
         except Exception as e:
-            print(f"Error: {e}")
+            logger.error(f"Error: {e}")
             return None
 if __name__ == "__main__":
     from importlib.metadata import version
