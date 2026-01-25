@@ -4,7 +4,6 @@ import pandas as pd
 from pathlib import Path
 from typing import Union, Dict, Any, List
 from utils import logger
-
 def read_all_excel(
     file_path: Union[str, Path],
     sheet_name: Union[str, int, list, None] = None,
@@ -34,12 +33,13 @@ def read_all_excel(
     file_path = Path(file_path)
     
     if not file_path.exists():
+        logger.error(f"File not found: {file_path}")
         raise FileNotFoundError(f"文件不存在: {file_path}")
     
     # 先获取所有sheet名称
     xlsx = pd.ExcelFile(file_path)
     all_sheet_names = xlsx.sheet_names
-    
+    logger.info(f"Reading excel file: {file_path}")
     # 确定要读取的sheet列表
     if sheet_name is None:
         sheets_to_read = all_sheet_names
@@ -75,6 +75,7 @@ def read_all_excel(
     # 逐个读取 sheet
     dfs = {}
     for idx, sn in enumerate(sheets_to_read):
+        logger.info(f"Reading sheet: {sn}")
         hdr = get_header(idx, sn)
         df = pd.read_excel(
             xlsx,
@@ -85,10 +86,18 @@ def read_all_excel(
         for col in df.columns:
             df[col] = df[col].ffill()
         try:
-            header_df = df.columns.to_series()
-            header_df[header_df.str.contains('Unnamed', na=False)] = None
-            header_df = header_df.ffill()
-            df.columns = header_df
+            if isinstance(df.columns, pd.MultiIndex):
+                # Multirow header case.
+                cols = df.columns.to_frame(index=False)
+                cols = cols.replace(r'^Unnamed:.*', None, regex=True)
+                cols = cols.ffill(axis=1)
+                df.columns = pd.MultiIndex.from_frame(cols)
+            else: 
+                # Single row of header, means type=Index
+                header_df = df.columns.to_series()
+                header_df[header_df.str.contains('Unnamed', na=False)] = None
+                header_df = header_df.ffill()
+                df.columns = header_df
         except exception as e:
             logger.info(f"Error: {e}")
 
@@ -238,9 +247,18 @@ def data_save(
     return target_path
 
 if __name__ == "__main__":
-    data = read_all_excel("data/test_data/test_load.xlsx", header=[[1],[0]])
+    data = read_all_excel("data/test_data/test_load.xlsx", header=[[1],[0], [0,1,2,3]])
     for sheet_name, sheet_data in data.items():
         print(sheet_name)
         print(sheet_data)
     data_save(data['Sheet1'], 'data/test_data/test_save', 'csv')
-    # print(data['Sheet2'])
+
+    logger.info(f"Sheet 3 header schema: {data["Sheet3"].columns}")
+
+    col = data['Sheet3'].loc[:, ('hhh', 'kakak')]
+
+    # 强制压成 Series
+    if isinstance(col, pd.DataFrame) and col.shape[1] == 1:
+        col = col.iloc[:, 0]
+
+    logger.info(f"Column1 data: {col}")
