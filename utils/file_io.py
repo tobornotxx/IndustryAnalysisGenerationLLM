@@ -187,7 +187,8 @@ def data_save(
     # JSON 格式
     elif suffix_lower == ".json":
         if isinstance(data, pd.DataFrame):
-            data.to_json(target_path, orient="records", force_ascii=False, indent=2)
+            with open(target_path, "w", encoding="utf-8") as f:
+                f.write(data.to_json(orient="records", force_ascii=False, indent=2))
         elif isinstance(data, str):
             target_path.write_text(data, encoding="utf-8")
         else:
@@ -206,7 +207,7 @@ def data_save(
     # XML 格式
     elif suffix_lower == ".xml":
         if isinstance(data, pd.DataFrame):
-            data.to_xml(target_path, index=False)
+            data.to_xml(target_path, index=False, encoding="utf-8")
         elif isinstance(data, str):
             target_path.write_text(data, encoding="utf-8")
         else:
