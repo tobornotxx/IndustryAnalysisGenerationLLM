@@ -25,6 +25,10 @@ import numpy as np
     'dataframe': '''# 读取Pandas DataFrame文件 (.parquet)
 import pandas as pd
 {var_name}_data = pd.read_parquet({var_name})''',
+
+    'dataframe_pickle': '''# 读取Pandas DataFrame文件 (.pkl) - MultiIndex列
+import pandas as pd
+{var_name}_data = pd.read_pickle({var_name})''',
 }
 
 
