@@ -247,18 +247,12 @@ def data_save(
     return target_path
 
 if __name__ == "__main__":
-    data = read_all_excel("data/test_data/test_load.xlsx", header=[[1],[0], [0,1,2,3]])
+    data = read_all_excel("data/test_data/test_load.xlsx", header=[0,1,2])
     for sheet_name, sheet_data in data.items():
         print(sheet_name)
         print(sheet_data)
     data_save(data['Sheet1'], 'data/test_data/test_save', 'csv')
 
-    logger.info(f"Sheet 3 header schema: {data["Sheet3"].columns}")
-
-    col = data['Sheet3'].loc[:, ('hhh', 'kakak')]
-
-    # 强制压成 Series
-    if isinstance(col, pd.DataFrame) and col.shape[1] == 1:
-        col = col.iloc[:, 0]
-
-    logger.info(f"Column1 data: {col}")
+    logger.info(f"Sheet 1 header schema: {data["Sheet1"].columns}")
+    logger.info(f"Sheet 1 column 0:{data['Sheet1'][('时间','时间','时间')]}")
+    
