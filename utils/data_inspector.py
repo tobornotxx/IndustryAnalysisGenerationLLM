@@ -306,9 +306,10 @@ if __name__ == "__main__":
     # 示例: 读取 Excel 并展示结构
     test_file = "data/test_data/test_load.xlsx"
     if Path(test_file).exists():
-        dfs = read_all_excel(test_file, header=[[1], [0], [0, 1, 2, 3]])
+        dfs = read_all_excel(test_file, header=[0,1,2])
         schema = describe_dataframes_schema(dfs)
         print(schema)
+        result = query_dataframes(dfs, "统计8月总预算最高的一级部门(多个子部门总计)")
 
         # 示例: AI 查询（需要配置好模型环境变量）
         # result = query_dataframes(
