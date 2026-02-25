@@ -11,10 +11,14 @@ def get_var_storage_info(value: Any) -> Tuple[str, str]:
     - str/数值/bool → .txt
     - list/dict → .json
     - np.ndarray → .npy
-    - pd.DataFrame → .parquet
+    - pd.DataFrame (MultiIndex columns) → .pkl (pickle)
+    - pd.DataFrame (普通列) → .parquet
     """
     # 检查 pandas DataFrame
     if isinstance(value, pd.DataFrame):
+        # MultiIndex 列无法被 parquet 正确序列化，改用 pickle
+        if isinstance(value.columns, pd.MultiIndex):
+            return '.pkl', 'dataframe_pickle'
         return '.parquet', 'dataframe'
     
     # 检查 numpy array
@@ -58,9 +62,14 @@ def save_variable_to_temp(key: str, value: Any, suffix: str, type_name: str) -> 
         np.save(temp_path, value)
     
     elif type_name == 'dataframe':
-        # Pandas DataFrame
+        # Pandas DataFrame (普通列)
         os.close(temp_fd)  # pandas 需要自己管理文件
         value.to_parquet(temp_path, index=False)
+    
+    elif type_name == 'dataframe_pickle':
+        # Pandas DataFrame (MultiIndex 列) - parquet 无法保留 MultiIndex
+        os.close(temp_fd)
+        value.to_pickle(temp_path)
     
     else:
         # 默认尝试 JSON
