@@ -13,6 +13,10 @@ import pandas as pd
 from utils import logger
 
 
+# ============================================================
+# 1. Schema 描述
+# ============================================================
+
 def describe_dataframes_schema(
     dfs: Dict[str, pd.DataFrame],
     max_sample_rows: int = 3,
@@ -120,13 +124,16 @@ def _get_sample_values(series: pd.Series, n: int = 3) -> str:
         return "[全部为空]"
     samples = non_null.head(n).tolist()
     formatted = [repr(v) for v in samples]
-    total_non_null = len(non_null)
     null_count = series.isna().sum()
     suffix = ""
     if null_count > 0:
         suffix = f"  (空值数: {null_count})"
     return f"[{', '.join(formatted)}]{suffix}"
 
+
+# ============================================================
+# 2. AI 查询
+# ============================================================
 
 def query_dataframes(
     dfs: Dict[str, pd.DataFrame],
@@ -166,7 +173,7 @@ def query_dataframes(
     if schema_str is None:
         schema_str = describe_dataframes_schema(dfs)
     
-    # 2. 构建完整的 prompt
+    # 2. 构建完整的 prompt（不包含文件读取指令，读取指令由 MyCodeAgent 自动生成）
     prompt = _build_query_prompt(schema_str, instruction, dfs)
     logger.info(f"Query prompt constructed, instruction: {instruction}")
 
@@ -186,12 +193,12 @@ def query_dataframes(
 
     # 4. 将所有 DataFrame 作为 additional_args 传入
     #    key 格式: sheet_<idx> 以避免特殊字符问题
+    #    注意: MyCodeAgent.run() 内部会自动根据 DataFrame 列类型
+    #    选择正确的序列化方式（parquet 或 pickle），并生成对应的读取指令
     additional_args = {}
-    sheet_name_mapping = {}  # sheet_var_name -> real_sheet_name
     for idx, (sheet_name, df) in enumerate(dfs.items()):
         var_name = f"sheet_{idx}"
         additional_args[var_name] = df
-        sheet_name_mapping[var_name] = sheet_name
 
     # 5. 执行查询
     result = agent.run(
@@ -213,16 +220,22 @@ def _build_query_prompt(
     dfs: Dict[str, pd.DataFrame],
 ) -> str:
     """
-    构建给 AI Agent 的完整查询 prompt。
-    包含: 数据结构描述 + 变量映射 + 用户指令 + 输出要求
+    构建给 AI Agent 的查询 prompt。
+    
+    注意: 此 prompt 只包含数据结构描述 + 变量映射 + 用户指令 + 编码要求。
+    文件读取指令由 MyCodeAgent.run() 内部通过 get_instruction_for_agents() 自动生成，
+    会根据 DataFrame 列类型（普通列用 parquet，MultiIndex 列用 pickle）
+    生成正确的读取代码示例，不在此处重复指定，以避免指令冲突。
     """
     # 构建变量映射说明
     var_mapping_lines = []
     for idx, (sheet_name, df) in enumerate(dfs.items()):
         var_name = f"sheet_{idx}"
+        is_multi = isinstance(df.columns, pd.MultiIndex)
+        col_info = f"MultiIndex({df.columns.nlevels}层)" if is_multi else "单层表头"
         var_mapping_lines.append(
             f'  变量 `{var_name}` → Sheet "{sheet_name}", '
-            f"shape={df.shape}"
+            f"shape={df.shape}, {col_info}"
         )
     var_mapping_str = "\n".join(var_mapping_lines)
 
@@ -233,7 +246,7 @@ def _build_query_prompt(
 </数据结构信息>
 
 <变量映射>
-以下变量以 parquet 文件路径形式传入（已在 additional_args 中），请先读取为 DataFrame 再操作:
+以下变量已在 additional_args 中传入，请按照系统提示的读取方法将其加载为 DataFrame 后再操作:
 {var_mapping_str}
 </变量映射>
 
@@ -242,7 +255,7 @@ def _build_query_prompt(
 </用户指令>
 
 <要求>
-1. 先将传入的 parquet 文件读取为 pandas DataFrame
+1. 按照系统提示中的读取方法加载数据（不要自行假设文件格式）
 2. 根据用户指令编写代码完成查询或分析
 3. 如果涉及 MultiIndex 列，使用元组方式访问，如 df[("level0", "level1")]
 4. 结果应该清晰、结构化，适合人类阅读
@@ -253,7 +266,7 @@ def _build_query_prompt(
 
 
 # ============================================================
-# 便捷函数：从文件路径直接完成 "读取 → 描述 → 查询" 全流程
+# 3. 便捷函数：从文件路径直接完成 "读取 → 描述 → 查询" 全流程
 # ============================================================
 
 def inspect_and_query(
@@ -300,16 +313,110 @@ def inspect_and_query(
     return result
 
 
+# ============================================================
+# 4. MCP Tool 包装器
+# ============================================================
+
+class DataInspectorMCPTool:
+    """
+    MCP Tool 包装器：支持 describe_dataframes_schema、query_dataframes、inspect_and_query 三大功能。
+    
+    用法：
+        tool = DataInspectorMCPTool()
+        result = tool.run({"action": "describe", "dfs": {...}})
+    
+    返回值统一为 dict：
+        成功: {"result": <str>}
+        失败: {"error": <str>}
+    """
+
+    def run(self, params: Dict[str, Any]) -> Dict[str, str]:
+        """
+        params: dict, 必须包含 'action' 字段，可选值：'describe', 'query', 'inspect'
+        其余参数按原函数要求传递。
+        
+        Returns:
+            dict: {"result": str} 或 {"error": str}
+        """
+        action = params.get("action")
+        if action not in ("describe", "query", "inspect"):
+            return {"error": f"Unknown action '{action}'. Supported: describe, query, inspect."}
+
+        try:
+            if action == "describe":
+                return self._handle_describe(params)
+            elif action == "query":
+                return self._handle_query(params)
+            else:  # inspect
+                return self._handle_inspect(params)
+        except Exception as e:
+            logger.error(f"DataInspectorMCPTool error (action={action}): {e}")
+            return {"error": f"{type(e).__name__}: {e}"}
+
+    def _handle_describe(self, params: Dict[str, Any]) -> Dict[str, str]:
+        dfs = params.get("dfs")
+        if dfs is None:
+            return {"error": "Missing required parameter 'dfs' for action 'describe'."}
+        result = describe_dataframes_schema(
+            dfs,
+            max_sample_rows=params.get("max_sample_rows", 3),
+            max_unique_values=params.get("max_unique_values", 8),
+        )
+        return {"result": result}
+
+    def _handle_query(self, params: Dict[str, Any]) -> Dict[str, str]:
+        dfs = params.get("dfs")
+        instruction = params.get("instruction")
+        if dfs is None or instruction is None:
+            return {"error": "Missing required parameter 'dfs' or 'instruction' for action 'query'."}
+        result = query_dataframes(
+            dfs=dfs,
+            instruction=instruction,
+            schema_str=params.get("schema_str"),
+            model=params.get("model"),
+            api_base=params.get("api_base"),
+            api_key=params.get("api_key"),
+            max_steps=params.get("max_steps", 10),
+            **params.get("agent_kwargs", {}),
+        )
+        return {"result": result}
+
+    def _handle_inspect(self, params: Dict[str, Any]) -> Dict[str, str]:
+        file_path = params.get("file_path")
+        instruction = params.get("instruction")
+        if file_path is None or instruction is None:
+            return {"error": "Missing required parameter 'file_path' or 'instruction' for action 'inspect'."}
+        result = inspect_and_query(
+            file_path=file_path,
+            instruction=instruction,
+            sheet_name=params.get("sheet_name"),
+            header=params.get("header", 0),
+            model=params.get("model"),
+            **params.get("kwargs", {}),
+        )
+        return {"result": result}
+
+    # 兼容不同 MCP 框架的调用接口
+    def dispatch(self, params: Dict[str, Any]) -> Dict[str, str]:
+        return self.run(params)
+
+    def handle(self, params: Dict[str, Any]) -> Dict[str, str]:
+        return self.run(params)
+
+
+# ============================================================
+# 入口
+# ============================================================
+
 if __name__ == "__main__":
     from utils.file_io import read_all_excel
 
     # 示例: 读取 Excel 并展示结构
     test_file = "data/test_data/test_load.xlsx"
     if Path(test_file).exists():
-        dfs = read_all_excel(test_file, header=[0,1,2])
+        dfs = read_all_excel(test_file, header=[[1], [0], [0, 1, 2, 3]])
         schema = describe_dataframes_schema(dfs)
         print(schema)
-        result = query_dataframes(dfs, "统计8月总预算最高的一级部门(多个子部门总计)")
 
         # 示例: AI 查询（需要配置好模型环境变量）
         # result = query_dataframes(
