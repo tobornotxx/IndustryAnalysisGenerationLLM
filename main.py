@@ -6,6 +6,9 @@
 
 import sys
 from pathlib import Path
+from typing import Union, List
+
+import pandas as pd
 
 from llm import OpenAILikeLLM, LLMConfig
 from data_analysis import analyze_region
@@ -21,10 +24,49 @@ from utils.file_io import read_all_excel, data_save
 
 # 考核评估总表路径（按实际情况修改）
 ASSESSMENT_FILE = Path("data/overview_data/考核评估总表.xlsx")
-ASSESSMENT_HEADER = 0  # 表头配置，按实际情况修改
+ASSESSMENT_HEADER = [0, 1, 2]  # 表头配置，按实际情况修改
+# 读取时忽略的列索引（int 或 List[int]），这些列不参与排名
+ASSESSMENT_IGNORE_COLUMNS: Union[int, List[int]] = [0, 1]
 
 # 输出目录
 OUTPUT_DIR = Path("output")
+
+
+def _add_ranking_columns(
+    df: pd.DataFrame,
+    ignore_columns: Union[int, List[int]],
+) -> pd.DataFrame:
+    """
+    为数值列添加排名列（从高到低，1 为最高），插入在原列右侧。
+    支持 MultiIndex 列名：上层保持不变，最后一级列名后加「排名」。
+
+    Args:
+        df: 原始 DataFrame
+        ignore_columns: 要忽略的列索引（int 或 List[int]），这些列不参与排名
+
+    Returns:
+        添加了排名列的新 DataFrame
+    """
+    if isinstance(ignore_columns, int):
+        ignore_set = {ignore_columns}
+    else:
+        ignore_set = set(ignore_columns)
+
+    new_data = {}
+    for col_idx, col in enumerate(df.columns):
+        series = df.iloc[:, col_idx]
+        new_data[col] = series
+        if col_idx in ignore_set:
+            continue
+        if pd.api.types.is_numeric_dtype(series):
+            rank_series = series.rank(ascending=False, method="min").astype("Int64")
+            if isinstance(df.columns, pd.MultiIndex):
+                new_name = (*col[:-1], str(col[-1]) + "排名")
+            else:
+                new_name = str(col) + "排名"
+            new_data[new_name] = rank_series
+
+    return pd.DataFrame(new_data)
 
 
 def _create_planning_llm() -> OpenAILikeLLM:
@@ -84,7 +126,13 @@ def run(region_name: str) -> Path:
     dfs = read_all_excel(ASSESSMENT_FILE, header=ASSESSMENT_HEADER)
     # 取第一个 sheet（或按需调整）
     assessment_df = list(dfs.values())[0]
+    # 为数值列添加排名（从高到低），忽略 ignore_columns 指定的列
+    assessment_df = _add_ranking_columns(
+        assessment_df,
+        ignore_columns=ASSESSMENT_IGNORE_COLUMNS,
+    )
     logger.info(f"考核数据 shape: {assessment_df.shape}")
+    logger.info(f"考核数据 columns: {assessment_df.head(3)}")
 
     # ---- 2. 数据分析 ----
     logger.info(f"[2/4] 数据分析: {region_name}")
