@@ -178,7 +178,11 @@ def query_dataframes(
     logger.info(f"Query prompt constructed, instruction: {instruction}")
 
     # 3. 初始化 Agent
-    model_id = model or os.getenv("MODEL_DEFAULT", "siliconflow/Qwen/Qwen3-8B")
+    # CodeAgent 使用单独的环境变量控制模型，避免与普通 LLM 混用
+    code_agent_model_env = os.getenv("CODE_AGENT_MODEL_NAME")
+    model_id = model or code_agent_model_env or os.getenv(
+        "MODEL_DEFAULT", "siliconflow/Qwen/Qwen3-8B"
+    )
     base_url = api_base or os.getenv("API_BASE_DEFAULT")
     key = api_key or os.getenv("API_KEY_DEFAULT")
 

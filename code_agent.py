@@ -109,8 +109,9 @@ if __name__ == "__main__":
     print(f"LiteLLM version: {version('litellm')}")
     print(f"Smolagents version: {version('smolagents')}")
 
+    # 示例：使用 CodeAgent 独立的模型环境变量
     agent = MyCodeAgent(
-        model='siliconflow/Qwen/Qwen3-8B',
+        model=os.getenv("CODE_AGENT_MODEL_NAME", "siliconflow/Qwen/Qwen3-8B"),
         api_base=os.getenv("API_BASE_DEFAULT"),
         api_key=os.getenv("API_KEY_DEFAULT"),
         tools=[],
