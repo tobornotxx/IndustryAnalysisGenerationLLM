@@ -128,13 +128,21 @@ def analyze_region(
             f"[{region_name}] 执行查询 {i}/{len(query_instructions)}: "
             f"{instruction[:80]}..."
         )
+        # 默认限制 CodeAgent 的最大步数，避免无限制多轮推理导致 token 暴涨
+        effective_max_steps = code_agent_kwargs.get("max_steps", 4)
+
+        # 其余传给 CodeAgent 的参数放在 agent_kwargs 中
+        agent_kwargs = {
+            k: v for k, v in code_agent_kwargs.items() if k != "max_steps"
+        }
 
         result = mcp_tool.run({
             "action": "query",
             "dfs": all_dfs,
             "instruction": instruction,
             "model": code_agent_model,
-            **code_agent_kwargs,
+            "max_steps": effective_max_steps,
+            "agent_kwargs": agent_kwargs,
         })
 
         if "result" in result:

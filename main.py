@@ -148,6 +148,7 @@ def run(region_name: str) -> Path:
         region_name=region_name,
         supplementary_header=[[2,3,4],[3,4],[0,1],[0,1],[0,1,2],[0,1],[0,1],[0,1],[0,1],[0,1],[0,1],[0,1],[0,1]],
         llm=planning_llm,
+        code_agent_kwargs={"max_steps": 4},
     )
     logger.info(f"分析结果长度: {len(analysis_result)} 字符")
 
