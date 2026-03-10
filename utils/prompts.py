@@ -70,27 +70,161 @@ real_example_variable = json.loads(text)
             example_code = READ_EXAMPLES.get(type_name, READ_EXAMPLES['json'])
             formatted_code = example_code.format(var_name=var_name)
             base_instruction += f"\n## 变量 `{var_name}` (类型: {type_name}):\n```python\n{formatted_code}\n```\n"
-    
-    # 添加通用的结束说明 + 一些 DataFrame 使用提示（特别是 MultiIndex 和布尔筛选）
-    base_instruction += """
-# 代码编写要求：
-1. 按照上述示例读取变量数据。
-2. 编写你的处理逻辑，并重点关注“最终分析结论”，而不是打印过程细节。
-3. 对 Pandas DataFrame，注意以下规则：
-   - 布尔筛选写成：filtro = df[df[列名] == 某个值]，不要写成 df[列名 == 某个值]。
-   - 如果是 MultiIndex 列（多层表头），使用完整的列路径元组访问：
-       例如: df[("企业培育（35分）", "招商引资落地项目（个）", "招商引资落地项目（个）排名")]。
-   - 访问“区县名称”这一列时，也写成：
-       filtro = df[df[("区县", "名称")] == "渝北区"]。
-4. 严格限制 print / 日志输出：
-   - 禁止print所有的中间变量，由于dataframe的所有尺寸信息已经全部提供给你，你不被允许再去生成任何调试测试类的分步代码
-   - 你生成的代码应该简单扼要：基于输入的query，直接去dataframe里基于提供给你的数据结构去直接查询获得。
-   - 代码的结构应该类似于：读取数据->生成类SQL逻辑的Python代码，去dataframe中查询需要的信息->基于获得的信息计算你需要的所有统计量，如均值，方差，排序等等->使用final_answer返回最终结果。
-   - 多余的调试类代码内容不被允许。
-5. 分析完成后，整理一段清晰的自然语言总结，并使用 final_answer(your_answer_variable) 返回最终结果字符串。
-6. final_answer 是内置函数，无需定义或导入。
+
+    base_instruction += '''
+# ★★★ 核心规则（违反将导致任务失败）★★★
+
+## 规则一：你必须在一个代码块中完成所有工作并调用 final_answer() 返回结果。
+- 严禁分多步探索。你已经拥有完整的数据结构信息，不需要也不允许先 print 看看数据长什么样。
+- 严禁使用 print()。任何 print 语句都是不被允许的。你的代码中不应该出现任何 print() 调用。
+- 唯一的输出方式是 final_answer(result_string)，它是内置函数，无需导入。
+
+## 规则二：代码结构必须遵循以下模板
+```
+# 1. 读取数据（按上面给出的读取方法）
+df = pd.read_pickle(sheet_0)
+
+# 2. 筛选 + 查询（直接用已知列名，不要探索）
+row = df[df[("区县", "名称", "名称")] == "渝北区"]
+val = row[("分类A", "指标1", "指标1")].iloc[0]
+
+# 3. 计算统计量
+mean_val = df[("分类A", "指标1", "指标1")].mean()
+
+# 4. 组织结果字符串
+result = f"指标1的值为{val}，全市均值{mean_val:.2f}"
+
+# 5. 返回
+final_answer(result)
+```
+
+## 规则三：DataFrame 访问语法
+- 布尔筛选：df[df[列名] == 值]，不是 df[列名 == 值]
+- MultiIndex 列必须用完整元组：df[("level0", "level1", "level2")]
+- 示例：df[df[("区县", "名称", "名称")] == "渝北区"]
+
+## 反面示例（绝对不要这样做）：
+```
+# ✘ 错误：先打印列名探索数据
+print(df.columns.tolist())
+print(df.head())
+# ✘ 错误：先打印筛选结果看看
+result = df[df[col] == "渝北区"]
+print(result)
+# ✘ 错误：分多个步骤，每步只做一小部分
+```
+
+## 正面示例（请严格参照以下多个示例的风格）：
+
+### 示例1：考核表单指标查询 + 排名 + 均值比较
+任务："查询渝北区新增软件企业数量及排名，并与全市均值比较"
+```
+import pandas as pd
+df = pd.read_pickle(sheet_0)
+row = df[df[("区县", "名称", "名称")] == "渝北区"]
+count = row[("人才引育（40分）", "新增软件企业数量（家）", "新增软件企业数量（家）")].iloc[0]
+rank = row[("人才引育（40分）", "新增软件企业数量（家）", "新增软件企业数量（家）排名")].iloc[0]
+mean_count = df[("人才引育（40分）", "新增软件企业数量（家）", "新增软件企业数量（家）")].mean()
+result = f"渝北区新增软件企业{count}家，排名第{rank}；全市均值{mean_count:.1f}家。"
+final_answer(result)
+```
+
+### 示例2：明细表分组统计 — 按细分领域统计企业数量分布
+任务："统计存量软件企业的细分领域分布"
+```
+import pandas as pd
+df = pd.read_pickle(sheet_6)
+dist = df[("存量软件企业及人才台账", "细分领域\n(工业软件/汽车软件/基础软件和信息安全/人工智能/新兴技术软件/行业应用软件/数字内容/嵌入式软件/信息技术服务)")].value_counts()
+lines = []
+for domain, cnt in dist.items():
+    lines.append(f"  {domain}: {cnt}家")
+result = f"存量软件企业细分领域分布（共{len(df)}家）：\\n" + "\\n".join(lines)
+final_answer(result)
+```
+
+### 示例3：明细表聚合计算 — 求和、Top-N
+任务："统计新增软件企业的总软件业务收入，并列出收入前5名企业"
+```
+import pandas as pd
+df = pd.read_pickle(sheet_7)
+rev_col = ("新增软件企业及人才情况", "软件业务收入\n（万元）")
+total_rev = df[rev_col].sum()
+top5 = df.nlargest(5, rev_col)
+name_col = ("新增软件企业及人才情况", "企业详细名称\n（注册全称）")
+top5_info = []
+for _, r in top5.iterrows():
+    top5_info.append(f"  {r[name_col]}: {r[rev_col]:.1f}万元")
+result = f"新增软件企业总软件业务收入{total_rev:.1f}万元。\\n收入前5名：\\n" + "\\n".join(top5_info)
+final_answer(result)
+```
+
+### 示例4：跨表关联分析 — 将考核表数据与月报明细对比
+任务："对比考核表的新增收储面积与楼宇明细表的实际收储总面积"
+```
+import pandas as pd
+df_assess = pd.read_pickle(sheet_0)
+df_building = pd.read_pickle(sheet_3)
+row = df_assess[df_assess[("区县", "名称", "名称")] == "渝北区"]
+assess_val = row[("场所优化（10分）", "新增收储面积（万方）", "新增收储面积（万方）")].iloc[0]
+detail_total = df_building[("楼宇收储及使用清单", "实际收储\n（万方）")].sum()
+diff = detail_total - assess_val
+result = f"考核表新增收储面积{assess_val}万方，楼宇明细实际收储总计{detail_total:.2f}万方，差额{diff:.2f}万方。"
+final_answer(result)
+```
+
+### 示例5：比率/增速计算 — 计算落地率
+任务："计算招商引资项目的落地率"
+```
+import pandas as pd
+df = pd.read_pickle(sheet_0)
+row = df[df[("区县", "名称", "名称")] == "渝北区"]
+signed = row[("企业培育（35分）", "招商引资项目（个）", "招商引资项目（个）")].iloc[0]
+landed = row[("企业培育（35分）", "招商引资落地项目（个）", "招商引资落地项目（个）")].iloc[0]
+rate = landed / signed * 100 if signed > 0 else 0
+result = f"渝北区招商引资项目{signed}个，落地{landed}个，落地率{rate:.1f}%。"
+final_answer(result)
+```
+
+### 示例6：条件筛选 + 计数 — 筛选满足特定条件的记录
+任务："统计招商引资落地项目中合同投资金额超过1亿元的项目数量及总金额"
+```
+import pandas as pd
+df = pd.read_pickle(sheet_4)
+amt_col = ("招商引资项目情况", "合同投资金额\n（亿元）")
+big_projects = df[df[amt_col] > 1.0]
+count = len(big_projects)
+total_amt = big_projects[amt_col].sum()
+result = f"合同投资金额超过1亿元的项目共{count}个，总金额{total_amt:.2f}亿元。"
+final_answer(result)
+```
+
+### 示例7：多维度综合分析 — 同时从多张表提取信息撰写综合结论
+任务："综合分析渝北区人才引育维度的整体表现"
+```
+import pandas as pd
+df0 = pd.read_pickle(sheet_0)
+df7 = pd.read_pickle(sheet_7)
+row = df0[df0[("区县", "名称", "名称")] == "渝北区"]
+new_ent = row[("人才引育（40分）", "新增软件企业数量（家）", "新增软件企业数量（家）")].iloc[0]
+new_ent_rank = row[("人才引育（40分）", "新增软件企业数量（家）", "新增软件企业数量（家）排名")].iloc[0]
+new_rev = row[("人才引育（40分）", "新增软件业务收入（亿元）", "新增软件业务收入（亿元）")].iloc[0]
+new_staff = row[("人才引育（40分）", "新增从业人员数量（人）", "新增从业人员数量（人）")].iloc[0]
+growth = row[("人才引育（40分）", "新增从业人员增速", "新增从业人员增速")].iloc[0]
+avg_staff_per_ent = df7[("新增软件企业及人才情况", "平均用工人数\n（人）")].mean()
+result = (
+    f"渝北区人才引育综合表现：\\n"
+    f"- 新增软件企业{new_ent}家（排名第{new_ent_rank}）\\n"
+    f"- 新增软件业务收入{new_rev}亿元\\n"
+    f"- 新增从业人员{new_staff}人，增速{growth:.1%}\\n"
+    f"- 新增企业平均用工人数{avg_staff_per_ent:.1f}人/家"
+)
+final_answer(result)
+```
+
+以上所有示例都是一个代码块完成，没有任何print，没有任何探索。这就是你应该写的代码风格。
+请灵活运用 value_counts、groupby、nlargest、sum、mean、条件筛选、比率计算、跨表关联等多种分析手段。
 <SystemEnd>
 <User>
-"""
-    
+'''
+
     return base_instruction
