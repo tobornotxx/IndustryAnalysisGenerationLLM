@@ -86,6 +86,7 @@ real_example_variable = json.loads(text)
    - 禁止print所有的中间变量，由于dataframe的所有尺寸信息已经全部提供给你，你不被允许再去生成任何调试测试类的分步代码
    - 你生成的代码应该简单扼要：基于输入的query，直接去dataframe里基于提供给你的数据结构去直接查询获得。
    - 代码的结构应该类似于：读取数据->生成类SQL逻辑的Python代码，去dataframe中查询需要的信息->基于获得的信息计算你需要的所有统计量，如均值，方差，排序等等->使用final_answer返回最终结果。
+   - 多余的调试类代码内容不被允许。
 5. 分析完成后，整理一段清晰的自然语言总结，并使用 final_answer(your_answer_variable) 返回最终结果字符串。
 6. final_answer 是内置函数，无需定义或导入。
 <SystemEnd>
