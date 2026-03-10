@@ -5,6 +5,7 @@
 """
 
 import sys
+import os
 from pathlib import Path
 from typing import Union, List
 
@@ -16,7 +17,9 @@ from doc_writing import DocWriter
 from rewriting import Rewriter
 from utils import logger
 from utils.file_io import read_all_excel, data_save
+import dotenv
 
+dotenv.load_dotenv()
 
 # ============================================================
 # 配置
@@ -81,12 +84,14 @@ def _create_writing_llm() -> OpenAILikeLLM:
     """
     创建用于"报告撰写"阶段的高级闭源 LLM 客户端。
 
-    TODO: 替换为实际的闭源模型配置
     """
+    model_name = os.getenv("ADVANCED_MODEL_NAME")
+    api_base = os.getenv("API_BASE_ADVANCED")
+    api_key = os.getenv("API_KEY_ADVANCED")
     return OpenAILikeLLM(config=LLMConfig(
-        model="PLACEHOLDER_MODEL_NAME",         # TODO: 替换为实际模型名
-        api_base="PLACEHOLDER_API_BASE",         # TODO: 替换为实际 API 地址
-        api_key="PLACEHOLDER_API_KEY",           # TODO: 替换为实际 API Key
+        model=model_name,
+        api_base=api_base,
+        api_key=api_key,
         temperature=0.7,
     ))
 
@@ -94,14 +99,15 @@ def _create_writing_llm() -> OpenAILikeLLM:
 def _create_rewriting_llm() -> OpenAILikeLLM:
     """
     创建用于"文本改写/润色"阶段的高级闭源 LLM 客户端。
-
-    TODO: 替换为实际的闭源模型配置
     """
+    model_name = os.getenv("ADVANCED_MODEL_NAME")
+    api_base = os.getenv("API_BASE_ADVANCED")
+    api_key = os.getenv("API_KEY_ADVANCED")
     return OpenAILikeLLM(config=LLMConfig(
-        model="PLACEHOLDER_MODEL_NAME",         # TODO: 替换为实际模型名
-        api_base="PLACEHOLDER_API_BASE",         # TODO: 替换为实际 API 地址
-        api_key="PLACEHOLDER_API_KEY",           # TODO: 替换为实际 API Key
-        temperature=0.3,
+        model=model_name,
+        api_base=api_base,
+        api_key=api_key,
+        temperature=0.7,
     ))
 
 
@@ -140,6 +146,7 @@ def run(region_name: str) -> Path:
     analysis_result = analyze_region(
         assessment_df=assessment_df,
         region_name=region_name,
+        supplementary_header=[[2,3,4],[3,4],[0,1],[0,1],[0,1,2],[0,1],[0,1],[0,1],[0,1],[0,1],[0,1],[0,1],[0,1]],
         llm=planning_llm,
     )
     logger.info(f"分析结果长度: {len(analysis_result)} 字符")

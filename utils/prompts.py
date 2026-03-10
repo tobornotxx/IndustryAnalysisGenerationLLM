@@ -71,13 +71,19 @@ real_example_variable = json.loads(text)
             formatted_code = example_code.format(var_name=var_name)
             base_instruction += f"\n## 变量 `{var_name}` (类型: {type_name}):\n```python\n{formatted_code}\n```\n"
     
-    # 添加通用的结束说明
+    # 添加通用的结束说明 + 一些 DataFrame 使用提示（特别是 MultiIndex 和布尔筛选）
     base_instruction += """
 # 代码编写要求：
 1. 按照上述示例读取变量数据
 2. 编写你的处理逻辑
-3. 必须使用 final_answer(your_answer_variable) 返回最终结果
-4. final_answer 是内置函数，无需定义或导入
+3. 对 Pandas DataFrame，注意以下规则：
+   - 布尔筛选写成：filtro = df[df[列名] == 某个值]，不要写成 df[列名 == 某个值]
+   - 如果是 MultiIndex 列（多层表头），使用完整的列路径元组访问：
+       例如: df[("企业培育（35分）", "招商引资落地项目（个）", "招商引资落地项目（个）排名")]
+   - 访问“区县名称”这一列时，也写成：
+       filtro = df[df[("区县", "名称")] == "渝北区"]
+4. 必须使用 final_answer(your_answer_variable) 返回最终结果
+5. final_answer 是内置函数，无需定义或导入
 <SystemEnd>
 <User>
 """
