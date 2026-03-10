@@ -129,7 +129,7 @@ def analyze_region(
             f"{instruction[:80]}..."
         )
         # 默认限制 CodeAgent 的最大步数，避免无限制多轮推理导致 token 暴涨
-        effective_max_steps = code_agent_kwargs.get("max_steps", 4)
+        effective_max_steps = code_agent_kwargs.get("max_steps", 3)
 
         # 其余传给 CodeAgent 的参数放在 agent_kwargs 中
         agent_kwargs = {

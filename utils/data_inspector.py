@@ -19,99 +19,66 @@ from utils import logger
 
 def describe_dataframes_schema(
     dfs: Dict[str, pd.DataFrame],
-    max_sample_rows: int = 3,
-    max_unique_values: int = 8,
+    max_sample_rows: int = 0,
+    max_unique_values: int = 0,
 ) -> str:
     """
     将 read_all_excel 返回的 {sheet_name: DataFrame} 字典，转化为一段结构化的
-    文本描述，包含每个 sheet 的表头层级、列名、数据类型及示例值。
-    
-    该字符串可以直接用于 AI prompt，帮助 AI 理解表格结构并自主决策后续查询。
+    文本描述，仅包含每个 sheet 的列名和数据类型。
 
     Args:
         dfs: read_all_excel 返回的字典，key=sheet名，value=DataFrame
-        max_sample_rows: 每列展示的示例值行数，默认 3
-        max_unique_values: 展示 unique 值的最大数量（用于低基数列），默认 8
+        max_sample_rows: 每列展示的示例值行数，默认 0（不展示）
+        max_unique_values: 展示 unique 值的最大数量，默认 0（不展示）
 
     Returns:
         str: 结构化描述字符串
     """
     lines: List[str] = []
-    lines.append("=" * 70)
+    lines.append("=" * 50)
     lines.append("Excel 文件数据结构概览")
-    lines.append("=" * 70)
     lines.append(f"共包含 {len(dfs)} 个 Sheet\n")
 
     for sheet_idx, (sheet_name, df) in enumerate(dfs.items(), 1):
-        lines.append("-" * 60)
-        lines.append(f"【Sheet {sheet_idx}】 \"{sheet_name}\"")
-        lines.append(f"  行数: {len(df)}  |  列数: {len(df.columns)}")
-        lines.append("-" * 60)
+        lines.append(f"【Sheet {sheet_idx}】 \"{sheet_name}\"  行数: {len(df)}  列数: {len(df.columns)}")
 
         if isinstance(df.columns, pd.MultiIndex):
-            # ---- MultiIndex 表头 ----
             n_levels = df.columns.nlevels
-            lines.append(f"  表头层级数: {n_levels} (MultiIndex)")
-            lines.append("")
-
-            # 展示层级结构
-            lines.append("  表头层级结构:")
-            for level_i in range(n_levels):
-                level_values = df.columns.get_level_values(level_i).unique().tolist()
-                display_vals = [str(v) for v in level_values[:15]]
-                suffix = f" ... (共{len(level_values)}个)" if len(level_values) > 15 else ""
-                lines.append(f"    Level {level_i}: [{', '.join(display_vals)}{suffix}]")
-            lines.append("")
-
-            # 展示完整列路径 + 数据类型
-            lines.append("  列详情 (完整路径 | 数据类型 | 示例值):")
+            lines.append(f"  表头: MultiIndex({n_levels}层)")
             for col_idx, col in enumerate(df.columns):
                 col_path = " > ".join(str(c) for c in col) if isinstance(col, tuple) else str(col)
                 dtype = str(df.iloc[:, col_idx].dtype)
-                sample_vals = _get_sample_values(df.iloc[:, col_idx], max_sample_rows)
-                lines.append(f"    [{col_idx}] {col_path}")
-                lines.append(f"         dtype={dtype}  |  示例: {sample_vals}")
-
-                # 低基数列展示 unique 值
-                nunique = df.iloc[:, col_idx].nunique()
-                if nunique <= max_unique_values and nunique > 0:
-                    uniques = df.iloc[:, col_idx].dropna().unique().tolist()
-                    lines.append(f"         唯一值({nunique}): {uniques}")
+                col_line = f"    [{col_idx}] {col_path}  ({dtype})"
+                if max_sample_rows > 0:
+                    sample_vals = _get_sample_values(df.iloc[:, col_idx], max_sample_rows)
+                    col_line += f"  示例: {sample_vals}"
+                if max_unique_values > 0:
+                    nunique = df.iloc[:, col_idx].nunique()
+                    if 0 < nunique <= max_unique_values:
+                        uniques = df.iloc[:, col_idx].dropna().unique().tolist()
+                        col_line += f"  唯一值: {uniques}"
+                lines.append(col_line)
         else:
-            # ---- 单层表头 ----
-            lines.append("  表头层级数: 1 (单层)")
-            lines.append("")
-            lines.append("  列详情 (列名 | 数据类型 | 示例值):")
+            lines.append("  表头: 单层")
             for col_idx, col_name in enumerate(df.columns):
-                col_series = df.iloc[:, col_idx]
-                dtype = str(col_series.dtype)
-                sample_vals = _get_sample_values(col_series, max_sample_rows)
-                lines.append(f"    [{col_idx}] \"{col_name}\"")
-                lines.append(f"         dtype={dtype}  |  示例: {sample_vals}")
-
-                # 低基数列展示 unique 值
-                nunique = col_series.nunique()
-                if nunique <= max_unique_values and nunique > 0:
-                    uniques = col_series.dropna().unique().tolist()
-                    lines.append(f"         唯一值({nunique}): {uniques}")
+                dtype = str(df.iloc[:, col_idx].dtype)
+                col_line = f"    [{col_idx}] \"{col_name}\"  ({dtype})"
+                if max_sample_rows > 0:
+                    sample_vals = _get_sample_values(df.iloc[:, col_idx], max_sample_rows)
+                    col_line += f"  示例: {sample_vals}"
+                if max_unique_values > 0:
+                    nunique = df.iloc[:, col_idx].nunique()
+                    if 0 < nunique <= max_unique_values:
+                        uniques = df.iloc[:, col_idx].dropna().unique().tolist()
+                        col_line += f"  唯一值: {uniques}"
+                lines.append(col_line)
 
         lines.append("")
 
-    # 生成 DataFrame 变量引用指南（方便 AI 在代码中使用）
-    lines.append("=" * 70)
-    lines.append("数据引用指南 (供代码访问)")
-    lines.append("=" * 70)
-    lines.append("所有 Sheet 数据存储在字典 `dfs` 中，key 为 Sheet 名称。")
-    lines.append("访问方式:")
+    # 生成 DataFrame 变量引用指南
+    lines.append("数据引用指南:")
     for sheet_name, df in dfs.items():
-        lines.append(f'  dfs["{sheet_name}"]  → DataFrame, shape={df.shape}')
-        if isinstance(df.columns, pd.MultiIndex):
-            # 给出 MultiIndex 列的访问示例
-            example_col = df.columns[0]
-            lines.append(f'    访问列示例: dfs["{sheet_name}"][{example_col}]')
-        else:
-            example_col = df.columns[0]
-            lines.append(f'    访问列示例: dfs["{sheet_name}"]["{example_col}"]')
+        lines.append(f'  dfs["{sheet_name}"]  → shape={df.shape}')
     lines.append("")
 
     return "\n".join(lines)
@@ -142,7 +109,7 @@ def query_dataframes(
     model: str = None,
     api_base: str = None,
     api_key: str = None,
-    max_steps: int = 10,
+    max_steps: int = 3,
     **agent_kwargs,
 ) -> str:
     """
@@ -243,14 +210,13 @@ def _build_query_prompt(
         )
     var_mapping_str = "\n".join(var_mapping_lines)
 
-    prompt = f"""你是一个数据分析助手。根据以下 Excel 表格的结构信息和用户指令，编写 Python 代码来查询和分析数据。
+    prompt = f"""你是数据分析助手。你必须在一个代码块内完成所有分析，直接调用 final_answer() 返回结果。禁止使用 print()，禁止分步探索。
 
 <数据结构信息>
 {schema_str}
 </数据结构信息>
 
 <变量映射>
-以下变量已在 additional_args 中传入，请按照系统提示的读取方法将其加载为 DataFrame 后再操作:
 {var_mapping_str}
 </变量映射>
 
@@ -258,13 +224,7 @@ def _build_query_prompt(
 {instruction}
 </用户指令>
 
-<要求>
-1. 按照系统提示中的读取方法加载数据（不要自行假设文件格式）
-2. 根据用户指令编写代码完成查询或分析
-3. 如果涉及 MultiIndex 列，使用元组方式访问，如 df[("level0", "level1")]
-4. 结果应该清晰、结构化，适合人类阅读
-5. 使用 final_answer() 返回最终结果（字符串格式）
-</要求>
+请在一个代码块中：读取数据 → 筛选查询 → 计算统计量 → 用 final_answer(结果字符串) 返回。不要 print，不要分步。
 """
     return prompt
 
@@ -380,7 +340,7 @@ class DataInspectorMCPTool:
             model=params.get("model"),
             api_base=params.get("api_base"),
             api_key=params.get("api_key"),
-            max_steps=params.get("max_steps", 10),
+            max_steps=params.get("max_steps", 3),
             **params.get("agent_kwargs", {}),
         )
         return {"result": result}

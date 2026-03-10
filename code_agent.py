@@ -13,6 +13,42 @@ from utils.temp_file import get_var_storage_info, save_variable_to_temp
 load_dotenv()
 
 
+def _dump_messages_debug(messages, step_label=""):
+    """将每一步发给 LLM 的 messages 的结构和大小记录到日志文件，方便排查 token 膨胀。
+    摘要输出到终端 (info)，完整内容输出到日志文件 (debug)。
+    """
+    total_chars = 0
+    details = []
+    for i, msg in enumerate(messages):
+        role = getattr(msg, 'role', msg.get('role', '?')) if isinstance(msg, dict) else getattr(msg, 'role', '?')
+        if isinstance(msg, dict):
+            content = msg.get('content', '')
+        else:
+            content = getattr(msg, 'content', '')
+        if isinstance(content, list):
+            text_parts = [item.get('text', '') for item in content if isinstance(item, dict) and item.get('type') == 'text']
+            text = '\n'.join(text_parts)
+        else:
+            text = str(content) if content else ''
+        char_len = len(text)
+        total_chars += char_len
+        details.append((i, str(role), char_len, text))
+
+    # 终端摘要
+    summary_parts = [f"msg[{i}] role={role} len={clen}" for i, role, clen, _ in details]
+    logger.info(f"[DEBUG] {step_label}: {len(messages)} 条消息, 总计 {total_chars} 字符 | {'; '.join(summary_parts)}")
+
+    # 日志文件写完整内容
+    logger.debug(f"===== {step_label} Messages 发送给 LLM =====")
+    for i, role, char_len, text in details:
+        if char_len > 600:
+            preview = text[:300] + f"\n... [省略 {char_len - 600} 字符] ...\n" + text[-300:]
+        else:
+            preview = text
+        logger.debug(f"  msg[{i}] role={role}, 长度={char_len} 字符\n{preview}")
+    logger.debug(f"===== 总计 {len(messages)} 条消息, {total_chars} 字符 =====\n")
+
+
 
 
 class MyCodeAgent:
@@ -57,10 +93,11 @@ class MyCodeAgent:
             model=self.model,
             tools=tools,
             additional_authorized_imports=additional_authorized_imports,
+            max_print_outputs_length=kwargs.get('max_print_outputs_length', 2000),
         )
         self.imports = additional_authorized_imports
     
-    def run(self, input: str, max_steps: int = 10, additional_args: Dict[str, Any] = {}) -> str:
+    def run(self, input: str, max_steps: int = 3, additional_args: Dict[str, Any] = {}) -> str:
         
         try:
             # 使用临时文件+文件路径的方式传入变量，节省上下文。
@@ -83,6 +120,18 @@ class MyCodeAgent:
                 # 生成包含读取示例的指令
                 input = get_instruction_for_agents(var_type_info) + input
                 logger.info(f"input: {input}")
+
+                # === DEBUG: 拦截 LLM 调用，记录每步发送的完整 messages ===
+                _original_generate = self.model.generate
+                _step_counter = [0]
+
+                def _debug_generate(messages, **kwargs):
+                    _step_counter[0] += 1
+                    _dump_messages_debug(messages, step_label=f"Step {_step_counter[0]}")
+                    return _original_generate(messages, **kwargs)
+
+                self.model.generate = _debug_generate
+
                 final_output = self.main_agent.run(
                     input, 
                     additional_args=processed_args, 
