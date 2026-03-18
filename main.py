@@ -151,6 +151,7 @@ def run(region_name: str) -> Path:
         code_agent_kwargs={"max_steps": 3},
     )
     logger.info(f"分析结果长度: {len(analysis_result)} 字符")
+    logger.info(f"分析结果：{analysis_result}")
 
     # ---- 3. 报告撰写 ----
     logger.info(f"[3/4] 生成报告初稿: {region_name}")
@@ -162,6 +163,7 @@ def run(region_name: str) -> Path:
         region_name=region_name,
     )
     logger.info(f"初稿长度: {len(draft)} 字符")
+    logger.info(f"初稿: {draft}")
 
     # ---- 4. 文本改写/润色 ----
     logger.info(f"[4/4] 改写润色: {region_name}")

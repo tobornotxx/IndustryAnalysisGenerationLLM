@@ -1,5 +1,4 @@
 import json
-from sys import exception
 import pandas as pd
 from pathlib import Path
 from typing import Union, Dict, Any, List
@@ -92,14 +91,14 @@ def read_all_excel(
                 cols = cols.replace(r'^Unnamed:.*', None, regex=True)
                 cols = cols.ffill(axis=1)
                 df.columns = pd.MultiIndex.from_frame(cols)
-            else: 
+            else:
                 # Single row of header, means type=Index
                 header_df = df.columns.to_series()
                 header_df[header_df.str.contains('Unnamed', na=False)] = None
                 header_df = header_df.ffill()
                 df.columns = header_df
-        except exception as e:
-            logger.info(f"Error: {e}")
+        except Exception as e:
+            logger.info(f"Error normalizing header for sheet '{sn}': {e}")
 
         dfs[sn] = df
     

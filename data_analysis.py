@@ -109,6 +109,7 @@ def analyze_region(
     logger.info(
         f"[{region_name}] LLM 生成了 {len(query_instructions)} 条查询指令"
     )
+    logger.info(f"查询指令为：{json.dumps(query_instructions, indent=2)}")
 
     if not query_instructions:
         logger.warning(f"[{region_name}] LLM 未生成任何有效查询指令")
