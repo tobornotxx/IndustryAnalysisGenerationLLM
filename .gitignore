@@ -40,3 +40,4 @@ venv.bak/
 /data
 /results
 /output
+/human_validation/validation_reference
