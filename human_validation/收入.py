@@ -7,6 +7,7 @@ import os
 INPUT_EXCEL_NAME = "data/detailed_data/江北区-25-06.xlsx"  # 输入的Excel文件名
 HEADER_ROW = 1                             # 表头所在的行 (0表示第一行，如果没有表头填 None)
 OUTPUT_CSV_NAME = "存量新增收入.csv"    # 输出的CSV文件名
+OUTPUT_CSV_NAME_2 = "存量新增用工.csv"
 # 设置输出的列名 (必须是8个，分别对应提取的 E, H, J, L, N, P, R, V 列)
 OUTPUT_COLUMNS = [
     "企业详细名称", "主营业务", "新增软件业务收入（万元）", "新增用工人数（人）", 
@@ -20,6 +21,7 @@ OUTPUT_DIR = "human_validation/validation_reference/"
 # 确保输出目录存在，如果不存在则自动创建
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 output_path = os.path.join(OUTPUT_DIR, OUTPUT_CSV_NAME)
+output_path_2 = os.path.join(OUTPUT_DIR, OUTPUT_CSV_NAME_2)
 
 # ==========================================
 # 3. 数据处理区
@@ -50,20 +52,27 @@ df_extracted = df_filtered.iloc[:, target_indices].copy()
 # - V列 是第 8 个提取的，现在的相对索引是 7
 col_v_current_name = df_extracted.columns[7]  # 对应原 V 列
 col_j_current_name = df_extracted.columns[2]  # 对应原 J 列
+col_l_current_name = df_extracted.columns[3]  # 对应原 L 列
 
 # 利用多重排序来实现"分组内排序"：先按V列升序把相同的聚集在一起，再按J列降序
 df_sorted = df_extracted.sort_values(
     by=[col_v_current_name, col_j_current_name], 
     ascending=[True, False] 
 )
+df_sorted_2 = df_extracted.sort_values(
+    by=[col_v_current_name, col_l_current_name],
+    ascending=[True, False]
+)
 
 # 赋予用户自定义的输出列名
 df_sorted.columns = OUTPUT_COLUMNS
+df_sorted_2.columns = OUTPUT_COLUMNS
 
 # ==========================================
 # 4. 结果输出
 # ==========================================
 # 导出为CSV文件，使用 utf-8-sig 防止中文乱码
 df_sorted.to_csv(output_path, index=False, encoding='utf-8-sig')
+df_sorted_2.to_csv(output_path_2, index=False, encoding='utf-8-sig')
 
-print(f"处理完成！文件已保存至: {output_path}")
+print(f"处理完成！文件已保存至: {output_path}与{output_path_2}")
