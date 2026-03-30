@@ -41,3 +41,4 @@ venv.bak/
 /results
 /output
 /human_validation/validation_reference
+/human_validation/agent_result.txt
