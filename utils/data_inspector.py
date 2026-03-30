@@ -138,7 +138,9 @@ def query_dataframes(
 
     # 1. 生成或使用已有的 schema 描述
     if schema_str is None:
-        schema_str = describe_dataframes_schema(dfs)
+        schema_str = describe_dataframes_schema(
+            dfs, max_sample_rows=3, max_unique_values=8
+        )
     
     # 2. 构建完整的 prompt（不包含文件读取指令，读取指令由 MyCodeAgent 自动生成）
     prompt = _build_query_prompt(schema_str, instruction, dfs)
