@@ -46,7 +46,8 @@ def describe_dataframes_schema(
             n_levels = df.columns.nlevels
             lines.append(f"  表头: MultiIndex({n_levels}层)")
             for col_idx, col in enumerate(df.columns):
-                col_path = " > ".join(str(c) for c in col) if isinstance(col, tuple) else str(col)
+                # 转义列名中的换行符，让模型能看到\n并在代码中正确使用
+                col_path = " > ".join(str(c).replace('\n', '\\n') for c in col) if isinstance(col, tuple) else str(col).replace('\n', '\\n')
                 dtype = str(df.iloc[:, col_idx].dtype)
                 col_line = f"    [{col_idx}] {col_path}  ({dtype})"
                 if max_sample_rows > 0:
@@ -56,13 +57,15 @@ def describe_dataframes_schema(
                     nunique = df.iloc[:, col_idx].nunique()
                     if 0 < nunique <= max_unique_values:
                         uniques = df.iloc[:, col_idx].dropna().unique().tolist()
+                        uniques = [_truncate_str(v) for v in uniques]
                         col_line += f"  唯一值: {uniques}"
                 lines.append(col_line)
         else:
             lines.append("  表头: 单层")
             for col_idx, col_name in enumerate(df.columns):
                 dtype = str(df.iloc[:, col_idx].dtype)
-                col_line = f"    [{col_idx}] \"{col_name}\"  ({dtype})"
+                col_name_escaped = str(col_name).replace('\n', '\\n')
+                col_line = f"    [{col_idx}] \"{col_name_escaped}\"  ({dtype})"
                 if max_sample_rows > 0:
                     sample_vals = _get_sample_values(df.iloc[:, col_idx], max_sample_rows)
                     col_line += f"  示例: {sample_vals}"
@@ -70,6 +73,7 @@ def describe_dataframes_schema(
                     nunique = df.iloc[:, col_idx].nunique()
                     if 0 < nunique <= max_unique_values:
                         uniques = df.iloc[:, col_idx].dropna().unique().tolist()
+                        uniques = [_truncate_str(v) for v in uniques]
                         col_line += f"  唯一值: {uniques}"
                 lines.append(col_line)
 
@@ -84,13 +88,20 @@ def describe_dataframes_schema(
     return "\n".join(lines)
 
 
-def _get_sample_values(series: pd.Series, n: int = 3) -> str:
-    """获取一列的前 n 个非空示例值，格式化为字符串"""
+def _truncate_str(v, max_len: int = 30):
+    """如果是字符串且超长则截断，保留原始类型"""
+    if isinstance(v, str) and len(v) > max_len:
+        return v[:max_len] + '...'
+    return v
+
+
+def _get_sample_values(series: pd.Series, n: int = 3, max_str_len: int = 30) -> str:
+    """获取一列的前 n 个非空示例值，格式化为字符串，长文本截断"""
     non_null = series.dropna()
     if len(non_null) == 0:
         return "[全部为空]"
     samples = non_null.head(n).tolist()
-    formatted = [repr(v) for v in samples]
+    formatted = [repr(_truncate_str(v, max_str_len)) for v in samples]
     null_count = series.isna().sum()
     suffix = ""
     if null_count > 0:
