@@ -33,16 +33,18 @@ from utils.file_io import read_all_excel
 # 地区名称
 region_name = "江北区"
 
-# 数据文件路径（支持绝对路径或相对于项目根目录的路径）
 # 考核评估总表
 assessment_file = _PROJECT_ROOT / "data" / "overview_data" / "考核评估总表.xlsx"
-assessment_header = [0, 1, 2]  # 表头行配置
+assessment_header = [0, 1, 2]  # 表头行配置（MultiIndex 三层）
+assessment_ignore_columns: list = [0, 1]  # 不参与排名的列索引
 
-# 补充材料文件（可选，留空列表则只使用考核评估总表）
-supplementary_files: List[str] = [
-    # 示例: "data/detailed_data/江北区-25-06.xlsx",
+# 补充材料目录（自动查找文件名包含 region_name 的 Excel 文件）
+detailed_data_dir = _PROJECT_ROOT / "data" / "detailed_data"
+# 补充材料表头行配置（List[List[int]]，按 sheet 顺序对应）
+supplementary_header = [
+    [2, 3, 4], [3, 4], [0, 1], [0, 1], [0, 1, 2],
+    [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1],
 ]
-supplementary_header = 0  # 补充材料表头行配置
 
 # Code Agent 配置
 code_agent_model = os.getenv("CODE_AGENT_MODEL_NAME")  # 从环境变量读取，或直接填写模型名
@@ -54,29 +56,62 @@ max_steps = 3  # Agent 最大执行步数
 # 数据加载
 # ============================================================
 
+def _find_supplementary_files(region: str, data_dir: Path) -> List[Path]:
+    """在目录中查找文件名包含地区名称的 Excel 文件（与 data_analysis.py 逻辑一致）。"""
+    if not data_dir.exists():
+        logger.warning(f"补充材料目录不存在: {data_dir}")
+        return []
+    matched = [
+        f for f in data_dir.iterdir()
+        if f.is_file()
+        and f.suffix.lower() in (".xlsx", ".xls")
+        and region in f.stem
+    ]
+    return sorted(matched, key=lambda p: p.name)
+
+
+def _add_ranking_columns(df: pd.DataFrame, ignore_columns: list) -> pd.DataFrame:
+    """为数值列添加排名列（与 main.py 逻辑一致）。"""
+    ignore_set = set(ignore_columns) if isinstance(ignore_columns, list) else {ignore_columns}
+    new_data = {}
+    for col_idx, col in enumerate(df.columns):
+        series = df.iloc[:, col_idx]
+        new_data[col] = series
+        if col_idx in ignore_set:
+            continue
+        if pd.api.types.is_numeric_dtype(series):
+            rank_series = series.rank(ascending=False, method="min").astype("Int64")
+            if isinstance(df.columns, pd.MultiIndex):
+                new_name = (*col[:-1], str(col[-1]) + "排名")
+            else:
+                new_name = str(col) + "排名"
+            new_data[new_name] = rank_series
+    return pd.DataFrame(new_data)
+
+
 def load_data() -> Dict[str, pd.DataFrame]:
-    """加载所有配置的数据文件，返回 {sheet_name: DataFrame} 字典。"""
+    """加载考核评估总表 + 自动查找补充材料，返回 {sheet_name: DataFrame} 字典。"""
     all_dfs: Dict[str, pd.DataFrame] = {}
 
-    # 读取考核评估总表
+    # ---- 读取考核评估总表 ----
     if assessment_file.exists():
         try:
             assessment_dfs = read_all_excel(assessment_file, header=assessment_header)
-            # 用 "考核评估数据" 作为 key（与 data_analysis.py 保持一致）
-            for sheet_name, df in assessment_dfs.items():
-                all_dfs[f"考核评估数据__{sheet_name}" if len(assessment_dfs) > 1 else "考核评估数据"] = df
-            logger.info(f"已加载考核评估总表: {assessment_file.name}, {len(assessment_dfs)} 个 Sheet")
+            # 取第一个 sheet，并添加排名列（与 main.py 一致）
+            assessment_df = list(assessment_dfs.values())[0]
+            assessment_df = _add_ranking_columns(assessment_df, assessment_ignore_columns)
+            all_dfs["考核评估数据"] = assessment_df
+            logger.info(f"已加载考核评估总表: {assessment_file.name}, shape={assessment_df.shape}")
         except Exception as e:
             logger.warning(f"读取考核评估总表失败: {e}")
     else:
         logger.warning(f"考核评估总表不存在: {assessment_file}")
 
-    # 读取补充材料
-    for file_str in supplementary_files:
-        file_path = Path(file_str) if Path(file_str).is_absolute() else _PROJECT_ROOT / file_str
-        if not file_path.exists():
-            logger.warning(f"补充材料文件不存在: {file_path}")
-            continue
+    # ---- 自动查找并读取补充材料（按地区名匹配）----
+    supp_files = _find_supplementary_files(region_name, detailed_data_dir)
+    logger.info(f"[{region_name}] 找到 {len(supp_files)} 个补充材料文件: {[f.name for f in supp_files]}")
+
+    for file_path in supp_files:
         try:
             file_dfs = read_all_excel(file_path, header=supplementary_header)
             file_name = file_path.stem
