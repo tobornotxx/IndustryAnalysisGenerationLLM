@@ -165,6 +165,9 @@ if __name__ == "__main__":
         print(f"  - {name}: {df.shape}")
     print()
 
+    # 建立索引到 sheet 名的映射，方便用户按编号选择
+    sheet_index = list(all_dfs.keys())
+
     mcp_tool = DataInspectorMCPTool()
     results: List[str] = []
     query_count = 0
@@ -184,10 +187,41 @@ if __name__ == "__main__":
         if query_text.lower() in ("quit", "exit", "q"):
             break
 
+        # 让用户选择本次查询相关的 sheet（与主逻辑 data_analysis.py 的 sheet 筛选一致）
+        print("\n可用 Sheet 列表:")
+        for idx, name in enumerate(sheet_index):
+            print(f"  [{idx}] {name}: {all_dfs[name].shape}")
+        try:
+            sheet_input = input("选择 Sheet 编号 (逗号分隔, 如 0,3,5; 直接回车=全部): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n退出。")
+            break
+
+        if sheet_input:
+            try:
+                selected_indices = [int(x.strip()) for x in sheet_input.split(",")]
+                filtered_dfs = {}
+                for i in selected_indices:
+                    if 0 <= i < len(sheet_index):
+                        name = sheet_index[i]
+                        filtered_dfs[name] = all_dfs[name]
+                    else:
+                        print(f"  警告: 索引 {i} 超出范围，已跳过")
+                if not filtered_dfs:
+                    print("  未选中任何有效 Sheet，回退使用全部数据")
+                    filtered_dfs = all_dfs
+            except ValueError:
+                print("  输入格式错误，使用全部 Sheet")
+                filtered_dfs = all_dfs
+        else:
+            filtered_dfs = all_dfs
+
+        print(f"本次查询使用 {len(filtered_dfs)} 个 Sheet: {list(filtered_dfs.keys())}")
+
         query_count += 1
         logger.info(f"[{region_name}] 执行查询 {query_count}: {query_text[:80]}...")
 
-        result_text = run_query(mcp_tool, all_dfs, query_text)
+        result_text = run_query(mcp_tool, filtered_dfs, query_text)
 
         print(f"\n--- 查询 {query_count} 结果 ---")
         print(result_text)
