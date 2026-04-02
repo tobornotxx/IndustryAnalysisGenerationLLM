@@ -40,7 +40,11 @@ SQL-like:
 
 import pandas as pd
 import os
+import sys
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils.file_io import read_all_excel
 # ==========================================
 # 1. 用户控制变量区 (请在此处修改你的配置)
 # ==========================================
@@ -67,7 +71,9 @@ output_path_2 = os.path.join(OUTPUT_DIR, OUTPUT_CSV_NAME_2)
 # 3. 数据处理区
 # ==========================================
 # 读取第7个sheet (pandas中索引从0开始，所以第7个sheet是6)
-df = pd.read_excel(INPUT_EXCEL_NAME, sheet_name=6, header=HEADER_ROW)
+# df = pd.read_excel(INPUT_EXCEL_NAME, sheet_name=6, header=HEADER_ROW)
+df = read_all_excel(INPUT_EXCEL_NAME, sheet_name=6, header=HEADER_ROW)
+(df, ) = df.values()
 
 # 获取 Column B(索引1) 和 Column D(索引3) 的数据
 col_b = df.iloc[:, 1]

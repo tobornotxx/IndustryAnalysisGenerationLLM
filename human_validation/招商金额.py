@@ -28,12 +28,17 @@ SQL-like:
 import pandas as pd
 import os
 import numpy as np
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils.file_io import read_all_excel
 
 # ==========================================
 # 1. 用户控制变量区 (请在此处修改你的配置)
 # ==========================================
 INPUT_EXCEL_NAME = "data/detailed_data/江北区-25-06.xlsx"  # 输入的Excel文件名
-HEADER_ROW = 2                             # 表头所在的行 (0表示第一行，如果没有表头填 None)
+HEADER_ROW = [0,1,2]                             # 表头所在的行 (0表示第一行，如果没有表头填 None)
 OUTPUT_CSV_NAME = "招商金额.csv"      # 输出的CSV文件名
 # 设置输出的列名 (必须是4个，分别对应提取的 E, I, P, X 列)
 OUTPUT_COLUMNS = ['投资主体', '合同投资金额（亿元）', '细分领域', '员工人数（人）'] 
@@ -50,7 +55,8 @@ output_path = os.path.join(OUTPUT_DIR, OUTPUT_CSV_NAME)
 # 3. 数据处理区
 # ==========================================
 # 读取第5个sheet (pandas中索引从0开始，所以第5个sheet是4)
-df = pd.read_excel(INPUT_EXCEL_NAME, sheet_name=4, header=HEADER_ROW)
+# df = pd.read_excel(INPUT_EXCEL_NAME, sheet_name=4, header=HEADER_ROW)
+df = read_all_excel(INPUT_EXCEL_NAME, sheet_name=4, header=HEADER_ROW)['招商引资落地项目台账(D)']
 
 # 获取 Column C 的数据 (索引为2)
 col_c = df.iloc[:, 2]
