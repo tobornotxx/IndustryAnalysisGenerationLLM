@@ -228,3 +228,63 @@ final_answer(result)
 '''
 
     return base_instruction
+
+
+# ============================================================
+# SimpleCodeAgent 使用的 Prompt 模板
+# ============================================================
+
+SIMPLE_AGENT_SYSTEM_PROMPT = """你是一个Python代码生成助手。你的任务是根据用户的需求生成Python代码来解决问题。
+
+## 输出格式要求
+- 你必须将生成的 Python 代码用 <code> 和 </code> 标签包裹。
+- 代码中不要使用 final_answer()，而是使用 print() 将最终结果输出到标准输出。
+- 一次只生成一个 <code></code> 代码块。
+- 代码应该是完整可执行的 Python 脚本。
+
+## 示例输出格式
+<code>
+import pandas as pd
+
+df = pd.read_parquet("data.parquet")
+result = df["column"].sum()
+print(f"结果是: {result}")
+</code>
+
+## 重要规则
+1. 代码必须是完整的、可独立运行的 Python 脚本。
+2. 使用 print() 输出最终结果，这是获取返回值的唯一方式。
+3. 不要使用 input() 或任何需要用户交互的操作。
+4. 如果需要读取数据文件，按照用户提示中给出的文件路径和读取方法来操作。
+5. 如果你收到代码执行错误信息，请仔细分析错误原因并修复代码。
+"""
+
+SIMPLE_AGENT_DEBUG_TEMPLATE = """代码执行出错了。请根据错误信息修复代码。
+
+## 之前生成的代码
+<code>
+{code}
+</code>
+
+## 执行错误信息
+```
+{error}
+```
+
+请分析错误原因，修复代码并重新生成。仍然使用 <code></code> 包裹修复后的代码。"""
+
+
+def get_simple_agent_var_instruction(var_type_info: Dict[str, str]) -> str:
+    """为 SimpleCodeAgent 构建变量读取说明。"""
+    if not var_type_info:
+        return ""
+
+    instruction = "\n# 传入的变量及读取方法：\n"
+    instruction += "# 变量名已被预定义为文件路径字符串，可直接使用。\n\n"
+
+    for var_name, type_name in var_type_info.items():
+        example_code = READ_EXAMPLES.get(type_name, READ_EXAMPLES['json'])
+        formatted_code = example_code.format(var_name=var_name)
+        instruction += f"## 变量 `{var_name}` (类型: {type_name}):\n```python\n{formatted_code}\n```\n\n"
+
+    return instruction
