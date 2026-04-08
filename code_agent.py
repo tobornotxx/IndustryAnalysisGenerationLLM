@@ -121,8 +121,7 @@ class CodeAgent:
         logger.info(f"\n{separator}")
         logger.info(f"[CodeAgent] Step 1/{max_steps}: 请求 LLM 生成代码")
         logger.info(separator)
-        logger.debug(f"[CodeAgent] 发送给 LLM 的 Prompt:\n{query}")
-        logger.info(f"[CodeAgent] Prompt 长度: {len(query)} 字符")
+        logger.log_to_file(query, label="PROMPT")
 
         response = self.llm.chat(query, keep_history=True)
         code = extract_code_from_response(response.content)
@@ -131,14 +130,14 @@ class CodeAgent:
             logger.error(f"\n{separator}")
             logger.error("[CodeAgent] LLM 未返回有效的 <code></code> 代码块")
             logger.error(separator)
-            logger.debug(f"[CodeAgent] LLM 原始回复:\n{response.content}")
+            logger.log_to_file(response.content, label="LLM_RAW_RESPONSE")
             return None
 
         for step in range(1, max_steps + 1):
             logger.info(f"\n{separator}")
             logger.info(f"[CodeAgent] Step {step}/{max_steps}: 执行代码")
             logger.info(separator)
-            logger.info(f"[CodeAgent] 生成的代码:\n{'-' * 40}\n{code}\n{'-' * 40}")
+            logger.log_to_file(code, label="CODE")
 
             success, output = self._execute_code(code, var_paths)
 
@@ -146,17 +145,14 @@ class CodeAgent:
                 logger.info(f"\n{separator}")
                 logger.info(f"[CodeAgent] ✓ 代码执行成功 (Step {step}/{max_steps})")
                 logger.info(separator)
-                output_preview = output.strip()[:500]
-                logger.info(f"[CodeAgent] 执行结果:\n{output_preview}")
-                if len(output.strip()) > 500:
-                    logger.info(f"[CodeAgent] ... (结果已截断，总长 {len(output.strip())} 字符)")
+                logger.log_to_file(output.strip(), label="RESULT")
                 return output.strip() if output else ""
 
             # 执行失败，记录错误
             logger.warning(f"\n{separator}")
             logger.warning(f"[CodeAgent] ✗ Step {step}/{max_steps} 代码执行失败")
             logger.warning(separator)
-            logger.warning(f"[CodeAgent] 错误信息:\n{output[:1000]}")
+            logger.log_to_file(output, label="ERROR")
 
             # 如果已达到最大步数，不再重试
             if step >= max_steps:
@@ -170,14 +166,14 @@ class CodeAgent:
             logger.info(f"[CodeAgent] Step {step}→{step+1}: 请求 LLM 修复代码")
             logger.info(separator)
             debug_msg = SIMPLE_AGENT_DEBUG_TEMPLATE.format(code=code, error=output)
-            logger.debug(f"[CodeAgent] Debug Prompt:\n{debug_msg}")
+            logger.log_to_file(debug_msg, label="DEBUG_PROMPT")
             
             response = self.llm.chat(debug_msg, keep_history=True)
             new_code = extract_code_from_response(response.content)
 
             if new_code is None:
                 logger.error("[CodeAgent] LLM debug 后未返回有效代码块")
-                logger.debug(f"[CodeAgent] LLM debug 回复:\n{response.content}")
+                logger.log_to_file(response.content, label="LLM_DEBUG_RAW")
                 return None
 
             code = new_code
