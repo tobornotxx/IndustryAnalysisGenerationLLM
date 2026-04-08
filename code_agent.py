@@ -358,6 +358,47 @@ class SimpleCodeAgent:
                 pass
 
 
+def create_code_agent(
+    model: str,
+    api_base: str = os.getenv("API_BASE_DEFAULT"),
+    api_key: str = os.getenv("API_KEY_DEFAULT"),
+    tools: List = [],
+    additional_authorized_imports: List[str] = [],
+    **kwargs,
+):
+    """
+    工厂函数：根据环境变量 USE_SIMPLE_CODE_AGENT 决定创建哪种 Agent。
+    
+    当 USE_SIMPLE_CODE_AGENT=True 时，使用自实现的 SimpleCodeAgent（不依赖 smolagents）；
+    否则使用基于 smolagents 的 MyCodeAgent。
+    
+    参数与 MyCodeAgent 完全一致，SimpleCodeAgent 会自动忽略不支持的参数（如 tools）。
+    """
+    use_simple = os.getenv("USE_SIMPLE_CODE_AGENT", "false").strip().lower() in ("true", "1", "yes")
+
+    if use_simple:
+        logger.info("[create_code_agent] 使用 SimpleCodeAgent（自实现，不依赖 smolagents）")
+        # SimpleCodeAgent 不支持 tools 和 max_print_outputs_length，过滤掉
+        kwargs.pop("max_print_outputs_length", None)
+        return SimpleCodeAgent(
+            model=model,
+            api_base=api_base,
+            api_key=api_key,
+            additional_authorized_imports=additional_authorized_imports,
+            **kwargs,
+        )
+    else:
+        logger.info("[create_code_agent] 使用 MyCodeAgent（基于 smolagents）")
+        return MyCodeAgent(
+            model=model,
+            api_base=api_base,
+            api_key=api_key,
+            tools=tools,
+            additional_authorized_imports=additional_authorized_imports,
+            **kwargs,
+        )
+
+
 if __name__ == "__main__":
     from importlib.metadata import version
     import pandas as pd

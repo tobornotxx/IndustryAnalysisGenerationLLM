@@ -145,7 +145,7 @@ def query_dataframes(
     Returns:
         str: AI 查询结果的字符串
     """
-    from code_agent import MyCodeAgent
+    from code_agent import create_code_agent
 
     # 1. 生成或使用已有的 schema 描述
     if schema_str is None:
@@ -153,7 +153,7 @@ def query_dataframes(
             dfs, max_sample_rows=3, max_unique_values=8
         )
     
-    # 2. 构建完整的 prompt（不包含文件读取指令，读取指令由 MyCodeAgent 自动生成）
+    # 2. 构建完整的 prompt（不包含文件读取指令，读取指令由 Agent 自动生成）
     prompt = _build_query_prompt(schema_str, instruction, dfs)
     logger.info(f"Query prompt constructed, instruction: {instruction}")
 
@@ -166,7 +166,7 @@ def query_dataframes(
     base_url = api_base or os.getenv("API_BASE_DEFAULT")
     key = api_key or os.getenv("API_KEY_DEFAULT")
 
-    agent = MyCodeAgent(
+    agent = create_code_agent(
         model=model_id,
         api_base=base_url,
         api_key=key,
