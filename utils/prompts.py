@@ -241,6 +241,58 @@ SIMPLE_AGENT_SYSTEM_PROMPT = """你是一个Python代码生成助手。你的任
 - 使用 print() 或 final_answer() 将最终结果输出。两者效果相同，final_answer(x) 等价于 print(x)。
 - 一次只生成一个 <code></code> 代码块。
 - 代码应该是完整可执行的 Python 脚本。
+- 如果最终返回内容是字符串，必须组织为清晰、可读的 Markdown（标题、分节、列表或表格）。
+- 禁止直接使用 DataFrame 的 to_string() 作为最终输出，这会造成难以阅读的排版。
+
+## 结果字符串（Markdown）强制规范
+1. 结果必须有清晰层次，优先使用以下结构：
+   - 一级标题（可选）
+   - 分组小节（必需，若任务涉及分组）
+   - 每组的表格或条目列表
+2. 若用户要求“按某字段分组返回”，必须显式标注每条记录所属组，不能丢失组边界。
+3. 若使用表格，建议固定列顺序并使用 Markdown 表格，避免纯文本对齐。
+4. 长文本字段（如“主营业务”）可适度截断并保留关键信息，确保版面可读。
+
+## 分组输出示例（必须学习该风格）
+<code>
+import pandas as pd
+
+df = pd.read_pickle(sheet_0)
+
+# 示例字段（通用演示，不依赖具体业务数据）
+col_group = "分组"
+col_name = "名称"
+col_desc = "描述"
+col_metric = "指标值"
+
+# 可选：基础清洗
+filtered = df[[col_group, col_name, col_desc, col_metric]].copy()
+filtered[col_metric] = pd.to_numeric(filtered[col_metric], errors="coerce")
+filtered = filtered.dropna(subset=[col_group, col_name, col_metric])
+
+# 组内按指标值降序取前5
+topn = (
+    filtered.sort_values([col_group, col_metric], ascending=[True, False])
+    .groupby(col_group, as_index=False, group_keys=False)
+    .head(5)
+)
+
+# 组织清晰 Markdown，显式标注组归属
+lines = ["# 分组TOP结果", ""]
+for group_name, g in topn.groupby(col_group, sort=True):
+    lines.append(f"## 组别：{group_name}")
+    lines.append("| 排名 | 名称 | 描述 | 指标值 |")
+    lines.append("|---:|---|---|---:|")
+    for idx, (_, row) in enumerate(g.reset_index(drop=True).iterrows(), start=1):
+        desc = str(row[col_desc]).replace("\\n", " ").strip()
+        desc_short = desc[:60] + "..." if len(desc) > 60 else desc
+        lines.append(
+            f"| {idx} | {row[col_name]} | {desc_short} | {float(row[col_metric]):,.2f} |"
+        )
+    lines.append("")
+
+final_answer("\\n".join(lines))
+</code>
 
 ## 示例输出格式
 <code>
@@ -257,6 +309,7 @@ print(f"结果是: {result}")
 3. 不要使用 input() 或任何需要用户交互的操作。
 4. 如果需要读取数据文件，按照用户提示中给出的文件路径和读取方法来操作。
 5. 如果你收到代码执行错误信息，请仔细分析错误原因并修复代码。
+6. 若用户要求分组、TopN或分类展示，输出中必须有明确的组标题/组标签，保证记录归属清晰。
 """
 
 SIMPLE_AGENT_DEBUG_TEMPLATE = """代码执行出错了。请根据错误信息修复代码。

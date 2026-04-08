@@ -223,6 +223,8 @@ def _build_query_prompt(
     var_mapping_str = "\n".join(var_mapping_lines)
 
     prompt = f"""你是数据分析助手。你必须在一个代码块内完成所有分析，直接调用 final_answer() 返回结果。禁止使用 print()，禁止分步探索。
+你返回给 final_answer() 的必须是清晰易读的 Markdown 字符串，严禁直接使用 DataFrame.to_string() 作为最终输出。
+若任务包含“分组返回”，你必须用二级标题等方式显式标注每个组，并确保每条记录可识别组归属。
 
 <数据结构信息>
 {schema_str}
@@ -236,7 +238,19 @@ def _build_query_prompt(
 {instruction}
 </用户指令>
 
-请在一个代码块中：读取数据 → 筛选查询 → 计算统计量 → 用 final_answer(结果字符串) 返回。不要 print，不要分步。
+请在一个代码块中：读取数据 → 筛选查询 → 计算统计量 → 组织清晰Markdown结果 → 用 final_answer(结果字符串) 返回。不要 print，不要分步。
+
+推荐的分组输出格式示例（按需套用）：
+# 分析结果
+## 分组字段：A组
+| 排名 | 企业名称 | 主营业务 | 指标值 |
+|---:|---|---|---:|
+| 1 | XX公司 | ... | 123.45 |
+
+## 分组字段：B组
+| 排名 | 企业名称 | 主营业务 | 指标值 |
+|---:|---|---|---:|
+| 1 | YY公司 | ... | 67.89 |
 """
     return prompt
 
