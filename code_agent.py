@@ -263,42 +263,63 @@ class SimpleCodeAgent:
     ) -> Optional[str]:
         """核心执行循环：生成代码 → 执行 → 成功则返回 / 失败则 debug 重试。"""
         
+        separator = "=" * 60
+
         # 第 1 步：让 LLM 根据 query 生成代码
-        logger.info(f"[SimpleCodeAgent] Step 1/{max_steps}: 请求 LLM 生成代码...")
+        logger.info(f"\n{separator}")
+        logger.info(f"[SimpleCodeAgent] Step 1/{max_steps}: 请求 LLM 生成代码")
+        logger.info(separator)
+        logger.debug(f"[SimpleCodeAgent] 发送给 LLM 的 Prompt:\n{query}")
+        logger.info(f"[SimpleCodeAgent] Prompt 长度: {len(query)} 字符")
+
         response = self.llm.chat(query, keep_history=True)
         code = extract_code_from_response(response.content)
 
         if code is None:
+            logger.error(f"\n{separator}")
             logger.error("[SimpleCodeAgent] LLM 未返回有效的 <code></code> 代码块")
+            logger.error(separator)
             logger.debug(f"[SimpleCodeAgent] LLM 原始回复:\n{response.content}")
             return None
 
         for step in range(1, max_steps + 1):
-            logger.info(f"[SimpleCodeAgent] Step {step}/{max_steps}: 执行代码...")
-            logger.debug(f"[SimpleCodeAgent] 即将执行的代码:\n{code}")
+            logger.info(f"\n{separator}")
+            logger.info(f"[SimpleCodeAgent] Step {step}/{max_steps}: 执行代码")
+            logger.info(separator)
+            logger.info(f"[SimpleCodeAgent] 生成的代码:\n{'-' * 40}\n{code}\n{'-' * 40}")
 
             success, output = self._execute_code(code, var_paths)
 
             if success:
-                logger.info(f"[SimpleCodeAgent] 代码执行成功 (step {step})")
-                logger.info(f"[SimpleCodeAgent] 输出: {output[:500]}")
+                logger.info(f"\n{separator}")
+                logger.info(f"[SimpleCodeAgent] ✓ 代码执行成功 (Step {step}/{max_steps})")
+                logger.info(separator)
+                output_preview = output.strip()[:500]
+                logger.info(f"[SimpleCodeAgent] 执行结果:\n{output_preview}")
+                if len(output.strip()) > 500:
+                    logger.info(f"[SimpleCodeAgent] ... (结果已截断，总长 {len(output.strip())} 字符)")
                 return output.strip() if output else ""
 
             # 执行失败，记录错误
-            logger.warning(
-                f"[SimpleCodeAgent] Step {step}/{max_steps} 代码执行失败:\n{output[:1000]}"
-            )
+            logger.warning(f"\n{separator}")
+            logger.warning(f"[SimpleCodeAgent] ✗ Step {step}/{max_steps} 代码执行失败")
+            logger.warning(separator)
+            logger.warning(f"[SimpleCodeAgent] 错误信息:\n{output[:1000]}")
 
             # 如果已达到最大步数，不再重试
             if step >= max_steps:
-                logger.error(
-                    f"[SimpleCodeAgent] 已达到最大步数 {max_steps}，停止重试"
-                )
+                logger.error(f"\n{separator}")
+                logger.error(f"[SimpleCodeAgent] 已达到最大步数 {max_steps}，停止重试")
+                logger.error(separator)
                 return None
 
             # 让 LLM debug 并生成新代码
-            logger.info(f"[SimpleCodeAgent] 请求 LLM 修复代码...")
+            logger.info(f"\n{separator}")
+            logger.info(f"[SimpleCodeAgent] Step {step}→{step+1}: 请求 LLM 修复代码")
+            logger.info(separator)
             debug_msg = SIMPLE_AGENT_DEBUG_TEMPLATE.format(code=code, error=output)
+            logger.debug(f"[SimpleCodeAgent] Debug Prompt:\n{debug_msg}")
+            
             response = self.llm.chat(debug_msg, keep_history=True)
             new_code = extract_code_from_response(response.content)
 
@@ -311,6 +332,13 @@ class SimpleCodeAgent:
 
         return None
 
+    # final_answer 函数注入代码：让 LLM 生成的 final_answer() 调用等价于 print()
+    _FINAL_ANSWER_SHIM = (
+        "def final_answer(result):\n"
+        "    \"\"\"内置函数：返回最终结果。\"\"\"\n"
+        "    print(result)\n"
+    )
+
     def _execute_code(
         self, code: str, var_paths: Dict[str, str]
     ) -> Tuple[bool, str]:
@@ -319,9 +347,13 @@ class SimpleCodeAgent:
         返回:
             (success: bool, output: str) - 成功时 output 为 stdout，失败时为 stderr
         """
-        # 在代码顶部注入变量路径赋值
-        preamble = build_variable_preamble(var_paths)
-        full_code = preamble + "\n\n" + code if preamble else code
+        # 在代码顶部注入 final_answer shim + 变量路径赋值
+        preamble_parts = [self._FINAL_ANSWER_SHIM]
+        var_preamble = build_variable_preamble(var_paths)
+        if var_preamble:
+            preamble_parts.append(var_preamble)
+        preamble = "\n".join(preamble_parts)
+        full_code = preamble + "\n\n" + code
 
         # 写入临时 .py 文件
         temp_fd, temp_script = tempfile.mkstemp(suffix='.py', prefix='simple_agent_')
