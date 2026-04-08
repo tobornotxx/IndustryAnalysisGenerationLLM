@@ -129,7 +129,7 @@ def query_dataframes(
     流程:
         1. 如果未提供 schema_str，自动调用 describe_dataframes_schema 生成
         2. 将 schema_str + 自然语言指令组合成 prompt
-        3. 调用 MyCodeAgent 生成代码操作 DataFrame
+        3. 调用 CodeAgent 生成代码操作 DataFrame
         4. 执行代码并返回结果字符串
 
     Args:
@@ -140,7 +140,7 @@ def query_dataframes(
         api_base: API base URL，默认从环境变量读取
         api_key: API key，默认从环境变量读取
         max_steps: Agent 最大执行步数
-        **agent_kwargs: 传递给 MyCodeAgent 的额外参数（如 temperature, top_p 等）
+        **agent_kwargs: 传递给 CodeAgent 的额外参数（如 temperature, top_p 等）
 
     Returns:
         str: AI 查询结果的字符串
@@ -170,14 +170,13 @@ def query_dataframes(
         model=model_id,
         api_base=base_url,
         api_key=key,
-        tools=[],
         additional_authorized_imports=["pandas", "numpy", "re", "math", "collections"],
         **agent_kwargs,
     )
 
     # 4. 将所有 DataFrame 作为 additional_args 传入
     #    key 格式: sheet_<idx> 以避免特殊字符问题
-    #    注意: MyCodeAgent.run() 内部会自动根据 DataFrame 列类型
+    #    注意: CodeAgent.run() 内部会自动根据 DataFrame 列类型
     #    选择正确的序列化方式（parquet 或 pickle），并生成对应的读取指令
     additional_args = {}
     for idx, (sheet_name, df) in enumerate(dfs.items()):
@@ -207,7 +206,7 @@ def _build_query_prompt(
     构建给 AI Agent 的查询 prompt。
     
     注意: 此 prompt 只包含数据结构描述 + 变量映射 + 用户指令 + 编码要求。
-    文件读取指令由 MyCodeAgent.run() 内部通过 get_instruction_for_agents() 自动生成，
+    文件读取指令由 CodeAgent.run() 内部通过 get_simple_agent_var_instruction() 自动生成，
     会根据 DataFrame 列类型（普通列用 parquet，MultiIndex 列用 pickle）
     生成正确的读取代码示例，不在此处重复指定，以避免指令冲突。
     """

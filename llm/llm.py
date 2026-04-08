@@ -7,8 +7,7 @@ LLM 通用基类模块
 - 自动重试与错误处理
 - 轻松扩展子类
 
-注意: code_agent.py 中的 MyCodeAgent 继续使用 smolagents + LiteLLMModel，
-本模块专门服务于项目中其他需要直接调用 LLM 的场景。
+本模块服务于项目中所有需要调用 LLM 的场景，包括 CodeAgent 和其他模块。
 """
 
 import os
