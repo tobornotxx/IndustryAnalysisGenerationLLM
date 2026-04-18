@@ -461,244 +461,40 @@ print(member['age'].mean())
 **代码**: https://github.com/MMTU-Benchmark/MMTU  
 **数据**: https://huggingface.co/datasets/MMTU-benchmark/MMTU
 
-### 7.1 任务定义
-
-MMTU 旨在全面评估 LLM 在**专家级表格任务**上的能力——包括表格理解、推理和操作。这些任务来自数十年的数据管理 (SIGMOD/VLDB)、编程语言 (PLDI/POPL)、Web 数据 (WWW/WSDM) 等领域的计算机科学研究，反映了数据工程师、数据分析师、数据库管理员在真实工作中面临的挑战。
-
-与现有 benchmark（主要聚焦 NL-to-SQL 和 Table-QA）不同，MMTU 涵盖了 25 种不同的表格任务，其中 19 种是**首次用于评估基础模型**的任务类型。
-
-### 7.2 数据集组成
-
-#### 整体统计
-
-| 统计项 | 数值 |
-|--------|------|
-| **总问题数** | 28,136 |
-| **任务类型数 / 数据集数** | 25 / 52 |
-| **总表格数** | 61,763 |
-| **编码类问题** | 7,331 (26.1%)：其中 SQL 2,489 / Python Pandas 1,329 / 电子表格公式 3,513 |
-| **非编码类问题** | 20,805 (73.9%) |
-| **单表问题** | 20,048 (71.3%) |
-| **双表问题** | 5,285 (18.8%) |
-| **三表及以上问题** | 2,803 (10.0%) |
-| **平均表格行数** | 2,659 |
-| **平均表格列数** | 11 |
-| **平均表格单元格数** | 33,251 |
-| **表格来源** | Web 表格 74.9% / 电子表格 7.4% / 关系型表格 17.7% |
-
-#### 每条数据的标准三元组格式
-
-MMTU 的每个问题都统一为 **`<Instruction, Input-Table(s), Ground-truth answer>`** 三元组格式：
+### 7.1 数据集组成
 
 | 组成部分 | 说明 |
 |---------|------|
-| **Instruction** | 任务指令，描述需要完成的具体操作和期望的输出格式（通常要求 JSON 格式输出） |
-| **Input-Table(s)** | 一个或多个输入表格（Markdown/CSV/JSON/HTML 格式序列化） |
-| **Ground-truth answer** | 人工标注或经过验证的标准答案 |
+| **表格数据** | 真实世界的电子表格、数据库、计算 Notebook 中的表格 |
+| **任务类型** | 25 种不同的表格任务，来源于数十年的计算机科学研究 |
+| **问题** | 28K+ 个问题，覆盖表格理解、推理、操作 |
+| **标准答案** | 针对每个问题的精确答案 |
 
-### 7.3 完整的 25 种任务类型
+### 7.2 任务类型
 
-MMTU 的 25 种任务分为 **10 个大类**：
+MMTU 的 25 种任务涵盖了专业用户面临的全谱系表格任务，远超传统的 NL-to-SQL 和 Table-QA：
 
-#### 大类 1：Table Transform（表格变换）
+- 表格理解类：列类型标注、表格摘要、表格描述
+- 表格推理类：数值推理、逻辑推理、跨表推理
+- 表格操作类：数据清洗、格式转换、公式生成
+- 等等共 25 种
 
-| 任务 | 缩写 | 说明 | 评估指标 | 问题数 |
-|------|------|------|---------|--------|
-| Table Transform by Relationalization | TTBR | 将半结构化表格关系化（如展开嵌套数据） | Accuracy | 230 |
-| Table Transform by Output Schema | TTBS | 根据目标 Schema 合成变换程序 | Accuracy | 685 |
-| Table Transform by Output Table | TTBT | 根据输入/输出表格对推断变换程序（SQL 或 Pandas） | Accuracy | 86 |
+### 7.3 具体 Case 示例
 
-**Case 示例（TTBT）**:
-- **Instruction**: "Please examine the input table, and a desired output table below. Generate a SQL script that can run on the input to produce the output table, in JSON `{\"sql\": <SQL>}`"
-- **Input**: 一个包含 Product 和 Sales 列的明细表 + 一个按 Product 汇总 Sales 的目标表
-- **Ground-truth**: `{"sql": "SELECT Product, SUM(Sales) from table GROUP BY Product"}`
+**任务**: 表格数据理解与推理
 
-#### 大类 2：Table Matching（表格匹配）
+**数据表**: 一个销售数据电子表格
 
-| 任务 | 缩写 | 说明 | 评估指标 | 问题数 |
-|------|------|------|---------|--------|
-| Entity Matching | EM | 判断两个表中的行是否指向同一实体 | Accuracy | 4,228 |
-| Schema Matching | SM | 匹配两个表中语义相同的列 | F1 | 669 |
-| Head Value Matching | HVM | 将无标题表格的列与打乱的列标题匹配 | Accuracy | 900 |
+**问题**: "根据表格中的季度销售数据，计算哪个地区的销售额环比增长最不稳定（标准差最大）。"
 
-**Case 示例（SM）**:
-- **Instruction**: "Please inspect the two related tables below, and identify pairs of columns that correspond to the same semantic concept, in JSON `{\"match\": <pairs>}`"
-- **Input**: 表 A 包含 `Product, Sales` 列；表 B 包含 `Item, Revenue` 列
-- **Ground-truth**: `{"match": [("tab-A.Product", "tab-B.Item"), ("tab-A.Sales", "tab-B.Revenue")]}`
+**期望答案**: 需要计算各地区环比增长率 → 计算每个地区的标准差 → 比较得到结果
 
-#### 大类 3：Data Cleaning（数据清洗）
+### 7.4 评分标准
 
-| 任务 | 缩写 | 说明 | 评估指标 | 问题数 |
-|------|------|------|---------|--------|
-| Data Imputation | DI | 预测表格中的缺失值 | Accuracy | 1,971 |
-| Error Detection | ED | 检测表格中的错误单元格 | F1 | 1,891 |
-| List to Table | L2T | 将无分隔符的列表数据拆分为规范表格 | Accuracy | 957 |
+- 准确率（精确匹配）
+- 需要综合表格理解 + 推理 + 编码能力
 
-**Case 示例（DI）**:
-- **Instruction**: "Please review the table below, and predict the value in the `<MISSING>` cell in the table, in JSON `{\"missing\": <value>}`"
-- **Input**: 一个含有姓名、国籍等字段的表格，某个国籍单元格标记为 `<MISSING>`
-- **Ground-truth**: `{"missing": "Europe"}`
-- **典型错误**: 模型可能填入 "D. H. McFadden"（缩写）而非正确的 "David Henry McFadden"（全名），因为忽视了同列其他值的格式一致性
-
-#### 大类 4：Table Join（表格连接）
-
-| 任务 | 缩写 | 说明 | 评估指标 | 问题数 |
-|------|------|------|---------|--------|
-| Semantic Join | SJ | 基于语义关系（如国家-首都）连接两表 | Accuracy | 130 |
-| Equi-Join Detect | EJ | 识别多表之间的等值连接关系 | F1 | 494 |
-
-**Case 示例（EJ）**:
-- **Instruction**: "Given a database with multiple tables below, identify all key/foreign key join relationships between tables, using JSON `{\"join\": <columns>}`"
-- **Input**: 三个关联表（员工表、部门表、项目表）
-- **Ground-truth**: `{"join": [("tab-A.Department", "tab-B.D_id"), ("tab-A.Emp_id", "tab-C.E_id")]}`
-
-#### 大类 5：Column Transform（列变换）
-
-| 任务 | 缩写 | 说明 | 评估指标 | 问题数 |
-|------|------|------|---------|--------|
-| Program Transform by Example | PTBE | 根据输入/输出示例合成列变换程序 | Accuracy | 558 |
-| Formula by Context | FBC | 根据电子表格上下文预测公式 | Accuracy | 3,513 |
-| Semantic Transform by Example | STBE | 预测语义变换（如公司→股票代码） | Accuracy | 131 |
-
-**Case 示例（PTBE）**:
-- **Instruction**: "Please examine the two example output values in 'Output Column' below, and generate Python Pandas code that can produce the desired output"
-- **Input**: 含 First/Last/Middle 列的表格 + 2 个输出示例如 "Smith, John A."
-- **Ground-truth**: `{"python": "df['Output'] = df['Last'] + ', ' + df['First'] + df['Middle'].apply(lambda...)"}`
-
-#### 大类 6：Column Relationship（列关系发现）
-
-| 任务 | 缩写 | 说明 | 评估指标 | 问题数 |
-|------|------|------|---------|--------|
-| Arithmetic Relationship | AR | 发现列之间的算术关系 | F1 | 818 |
-| Functional Relationship | FR | 发现列之间的函数依赖关系 | F1 | 267 |
-| String Relationship | SR | 发现列之间的字符串变换关系 | F1 | 765 |
-
-**Case 示例（AR）**:
-- **Instruction**: "Please review the table below, and identify arithmetic relationships that exist between columns"
-- **Input**: 含 Sales/Cost/Profit/Margin 列的表格
-- **Ground-truth**: `{"relationship": ["Profit = Sales - Cost", "Margin = Profit / Sales"]}`
-
-#### 大类 7：Table Understanding（表格理解）
-
-| 任务 | 缩写 | 说明 | 评估指标 | 问题数 |
-|------|------|------|---------|--------|
-| Needle-in-a-Haystack Table | NIHT | 在大表中检索特定单元格的值 | Accuracy | 999 |
-| Needle-in-a-Haystack Index | NIHI | 根据单元格值检索其行列索引 | Accuracy | 1,000 |
-
-这是 MMTU 设计的**最简单的基准测试**——单纯的值检索，不需要额外推理。但实验表明，即使是这种简单任务，前沿模型在大表上仍表现不佳（特别是列数 > 25 时准确率跌破 0.5）。
-
-#### 大类 8：NL-2-Code
-
-| 任务 | 缩写 | 说明 | 评估指标 | 问题数 |
-|------|------|------|---------|--------|
-| NL-2-SQL | NS | 将自然语言翻译为 SQL 查询 | Accuracy | 2,489 |
-
-数据来源于 Spider、WikiSQL、Bird、KaggleDBQA、Archer 等经典 NL-to-SQL 数据集。
-
-#### 大类 9：Table QA（表格问答）
-
-| 任务 | 缩写 | 说明 | 评估指标 | 问题数 |
-|------|------|------|---------|--------|
-| Table Question Answering | TQA | 基于表格回答问题 | Accuracy | 1,793 |
-| Fact Verification | FV | 验证陈述是否被表格事实支持 | Accuracy | 916 |
-
-数据来源于 WikiQA、FinQA、TableBench、TabFact 等。
-
-#### 大类 10：KB Mapping（知识库映射）
-
-| 任务 | 缩写 | 说明 | 评估指标 | 问题数 |
-|------|------|------|---------|--------|
-| Column Type Annotation | CTA | 将表格列映射到知识库实体类型 | Accuracy | 881 |
-| Column Property Annotation | CPA | 预测列对之间的知识库属性关系 | Accuracy | 873 |
-| Cell Entity Annotation | CEA | 将单元格映射到知识库实体 ID | Accuracy | 892 |
-
-数据来源于 SemTab2019。
-
-### 7.4 LLM 的输入与输出
-
-| | 内容 |
-|---|------|
-| **输入** | ① 任务指令（Instruction）— 描述任务目标和期望输出格式 ② 一个或多个输入表格（序列化为 Markdown/CSV/JSON/HTML 格式）③ 无 Few-shot 示例（zero-shot 评估） |
-| **输出** | 结构化 JSON 格式的答案。编码类任务输出 SQL/Python/公式代码（通过执行验证正确性）；非编码类任务输出预测值/匹配对/关系描述等 |
-
-### 7.5 评分标准
-
-#### 评估框架设计
-
-与使用多选题（A/B/C/D）的 MMLU 等 benchmark 不同，MMTU 采用**结构化开放式答案格式**，支持多种评估方式：
-
-| 评估类型 | 适用任务 | 方法 |
-|---------|---------|------|
-| **执行验证 (Execution-based)** | SQL 生成、Python 代码生成 | 执行生成的代码，比较执行结果与标准答案 |
-| **结构化输出比较** | 匹配、关系发现、数据清洗 | 比较 JSON 结构（支持无序列表比较等） |
-| **精确匹配** | 表格理解、事实验证 | 直接字符串匹配 |
-
-#### 每个任务的评估指标
-
-- **Accuracy**: 大多数任务使用准确率（预测完全正确的比例），适用于有唯一答案的任务（如 Data Imputation、Entity Matching、NL-to-SQL 等）
-- **F1**: 用于需要精确率和召回率平衡的任务（如 Error Detection、Schema Matching、Arithmetic Relationship 等，因为可能存在多个正确答案）
-- **pass@1**: 用于代码生成类任务（执行一次，检查结果是否正确）
-
-#### 质量保证流程
-
-1. **LLM 质量检查**: 使用 o4-mini 检查每个问题是否有歧义或 ground-truth 是否正确，约 8% 的问题被剔除
-2. **隐私安全筛查**: 使用 GPT-4o 排除可能涉及隐私或安全风险的内容
-3. **数据集容量上限**: 单个数据集最多取 1000 条，保证来源多样性
-4. **专家验证**: 每个任务抽样 20 题，由多年经验的领域专家验证数据整合正确性、ground-truth 准确性、指令一致性和评分脚本正确性
-
-### 7.6 关键实验结果
-
-#### 总体表现（Top 模型）
-
-| 模型类型 | 模型 | MMTU 分数 | 每题成本 (US$) |
-|---------|------|----------|--------------|
-| **Reasoning** | GPT-5 | **0.696** | 0.01727 |
-| Reasoning | o3 | 0.691 | 0.01539 |
-| Reasoning | GPT-5-mini | 0.667 | 0.00276 |
-| Reasoning | Gemini-2.5-pro | 0.665 | 0.00790 |
-| Reasoning | DeepSeek-R1 | 0.579 | 0.00167 |
-| **Chat** | GPT-5-Chat | 0.577 | 0.00534 |
-| Chat | DeepSeek-V3 | 0.555 | 0.00095 |
-| Chat | GPT-4o | 0.507 | 0.01019 |
-| Chat | Llama-3.3-70B | 0.454 | 0.00150 |
-| Chat | Qwen2.5-7B-Instruct | 0.310 | 0.00010 |
-| Chat | Llama-3.1-8B | 0.268 | 0.00003 |
-
-#### 各任务类别表现对比（四个前沿模型）
-
-| 任务类别 | GPT-5-Chat | DeepSeek-V3 | GPT-5 (Reasoning) | DeepSeek-R1 (Reasoning) |
-|---------|-----------|-----------|-------------------|------------------------|
-| Entity Matching | 0.955 | 0.948 | **0.982** | 0.940 |
-| Schema Matching | 0.927 | 0.935 | **0.943** | 0.947 |
-| Fact Verification | 0.852 | 0.838 | **0.940** | 0.927 |
-| Semantic Join | 0.848 | 0.824 | **0.890** | 0.884 |
-| Needle-in-Haystack (NIHT) | 0.546 | 0.446 | **0.920** | 0.703 |
-| Data Imputation | 0.599 | 0.555 | **0.742** | 0.582 |
-| NL-to-SQL | 0.571 | 0.517 | **0.574** | 0.551 |
-| Table QA | 0.460 | 0.449 | **0.635** | 0.589 |
-| Column Transform (PTBE) | 0.501 | 0.449 | **0.694** | 0.625 |
-| Formula Prediction | 0.081 | 0.069 | **0.170** | 0.134 |
-| Error Detection | 0.119 | 0.168 | **0.170** | 0.133 |
-
-#### 错误分析
-
-基于人工抽样分析（每任务 10 题）+ LLM 自动错误分类（11K 条错误预测）：
-
-| 错误类别 | 占比 | 说明 |
-|---------|------|------|
-| **Reasoning & Coding Errors** | 40.3% | 代码逻辑接近正确但缺少关键细节，如忽略列内数据格式一致性 |
-| **Table Understanding Errors** | 25.6% | 行/列索引错位（最常见子类，28.3%），长上下文理解困难，多表理解错误 |
-| **Knowledge Errors** | 16.4% | 知识幻觉（如 CEA 中编造不存在的知识库引用）、不准确的事实 |
-| **Other Errors** | 11.7% | 格式错误、超时、ground-truth 歧义等 |
-
-#### 关键发现
-
-1. **Reasoning 模型明显优于 Chat 模型**: 前沿 Reasoning 模型比 Chat 模型高出 10+ 百分点，因为 MMTU 任务通常需要编码（SQL/Pandas）和任务分解能力
-2. **长表格上下文是主要瓶颈**: 随着表格 token 数增加，所有模型准确率持续下降。传统 NLP 的 Needle-in-a-Haystack 测试已被解决（100% 准确），但**表格版 NIHT 仅 ~70%**（GPT-5），且列数 > 25 时跌破 50%
-3. **列方向阅读是核心难点**: 50 行 × 5 列的表格准确率为 0.81，但 5 行 × 50 列的表格准确率仅 0.43——说明 LLM 在预训练中主要处理一维文本，对二维表格的"纵向阅读"能力很弱
-4. **表格置换敏感性**: 行/列打乱后性能下降（尽管语义不变），列打乱的影响大于行打乱
-5. **格式不敏感**: 前沿模型对 Markdown/CSV/JSON/HTML 四种格式已不太敏感（除 HTML 略差外）
-6. **公式预测和错误检测最难**: Formula Prediction 最高仅 17%，Error Detection 最高仅 17%，是当前模型最薄弱的领域
+**关键结果**: GPT-5 约 69%，DeepSeek R1 约 57%，说明即使前沿推理模型仍有巨大提升空间。
 
 ---
 
