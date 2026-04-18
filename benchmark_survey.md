@@ -196,79 +196,259 @@ $$score_{insight} = \frac{\sum_{gt \in GT} \max_{a \in A} \mathcal{M}(gt, a)}{|G
 
 **论文**: DACO: Towards Application-Driven and Comprehensive Data Analysis via Code Generation  
 **链接**: https://arxiv.org/abs/2403.02528  
-**代码**: https://github.com/shirley-wu/daco
+**代码**: https://github.com/shirley-wu/daco  
+**许可**: Apache-2.0
 
-### 2.1 数据集组成
+### 2.1 任务定义
 
-每个数据样本包含以下部分：
+DACO 关注的是**应用驱动的综合性数据分析**任务：给定一个真实世界的关系型数据库和一个由利益相关者提出的分析查询，系统需要通过多轮代码生成与执行来与数据交互，最终产出包含 Findings（发现）和 Suggestions（建议）的结构化分析报告。
 
-| 组成部分 | 说明 |
-|---------|------|
-| **关系型数据库** | 真实场景的多表关系型数据库（来自 Spider 和 Kaggle），每个数据库平均 2.3 个表 |
-| **应用驱动的查询 (Query)** | 模拟真实利益相关者角色提出的分析查询，如"作为广告主管，我想选择投放渠道" |
-| **中间代码步骤** | 多轮 Python 代码生成与执行过程（平均 3.3 轮，1.9k 行代码） |
-| **最终分析答案** | 包含 Findings（发现）和 Suggestions（建议）两个列表，平均约 10 个 bullet point |
+与传统 Table QA（关注简单事实检索或短答案计算）不同，DACO 的查询通常需要**查询分解**、**数学推理**、**逻辑推理**和**策略推理**的组合才能完成。例如，调查一个商店是否存在年龄歧视需要：从会员表中分析年龄分布（数学推理）、对比不同群体的参与率（分析推理）、最终得出是否支持歧视假说的结论（逻辑推理）、并提出后续行动建议（策略推理）。
 
-**整体规模**:
-- 440 个数据库
-- 1,942 个 query-answer 对
-- Train: 1,558 queries / Dev: 100 / Test A (自动标注): 284 / Test H (人工精标): 100
-- 覆盖 10+ 个领域主题（商业、体育、医疗、天气、教育等）
+### 2.2 数据集组成
 
-### 2.2 具体 Case 示例
+#### 每条数据的组成
 
-**数据库**: 某咖啡店会员数据库，包含 `member` 表（会员信息，含年龄）和 `happy_hour_member` 表（欢乐时光活动参与记录）
+| 组成部分 | 详细说明 |
+|---------|---------|
+| **关系型数据库 $\mathcal{D}$** | 包含一个或多个命名表的关系型数据库，存储为 `pd.DataFrame`。平均每个数据库 2.3 个表，中位数 15 列、57 行 |
+| **应用驱动的查询 $\mathbf{q}$** | 格式为 "As a/the [角色], I want to [意图]"。例如 "As an advertising executive, I want to select the channels for targeted ad placements" |
+| **中间代码步骤 (action $\mathbf{a}_i$)** | 每一轮 LLM 生成的 Python 代码片段，用于查询和分析数据 |
+| **中间执行结果 (observation $\mathbf{o}_i$)** | 每轮代码执行后的输出（如统计量、表格、图表等） |
+| **最终分析答案 $\mathbf{y}$** | 格式化为两个列表：**Findings**（数据发现）和 **Suggestions**（行动建议），以 bullet point 形式呈现 |
 
-**Query**: "作为咖啡店经理，我想调查是否存在年龄歧视问题。"
+#### 整体规模与数据划分
 
-**LLM 的多轮分析过程**:
+| 数据集 | 数据库数 | 查询数 | Bullet point 总数 | Token 总数 | 代码步骤数 | 代码行数 |
+|--------|---------|--------|------------------|-----------|-----------|---------|
+| **Train** | 353 | 1,558 | 14.8k | 575k | 5,086 | 3.0M |
+| **Dev** | 22 | 100 | 996 | 36.6k | 346 | 208k |
+| **Test A (自动标注)** | 65 | 284 | 2,728 | 106k | 948 | 555k |
+| **Test H (人工精标)** | 17 | 100 | 980 | 42.3k | — | — |
+| **Total** | 440 | 1,942 | 19.5k | 760k | 6,380 | 3.7M |
 
-**第 1 轮（代码）**: 
+Test A 是 GPT-4 自动生成的标注，Test H 是从 Test A 中抽取 100 条经人工精心修订后的高质量测试集。
+
+#### 人工精标测试集 (Test H) 的详细统计
+
+| 指标 | 中位数 | 最大值 | 最小值 |
+|------|--------|--------|--------|
+| Findings 数量 | 5 | 8 | 3 |
+| Suggestions 数量 | 5 | 8 | 3 |
+| 答案 Token 数 | 397 | 864 | 202 |
+
+#### 数据库来源与主题分布
+
+数据库来自两个来源：
+- **Spider** (157 个): 大学数据库、DatabaseAnswers 和 Wikipedia
+- **Kaggle** (283 个): 从 5,830 个候选数据库中人工筛选出 314 个干净、可解读的数据库，其中 157 个刻意选自长尾主题以保证多样性
+
+通过 BERTopic 建模的 **10 大主题分布**:
+1. **商业** (46.52%) — 最大类
+2. **体育** — 竞赛、赛事数据
+3. **医疗** — 健康、疾病数据
+4. **天气** — 气象观测数据
+5. **教育** — 学生、课程数据
+6. 其余 5 个主题均匀覆盖其他领域
+
+#### 查询的生成与质量控制
+
+**生成流程**:
+1. 为每个数据库用 ChatGPT 生成 10 个查询，提示模板为："I have a database of [title]. I am a stakeholder and I am analyzing the database to make a decision. Who am I and what decision might it be?"
+2. 6 名标注员进行人工过滤，移除不切实际或数据库无法回答的查询（约 42% 被移除，Cohen's kappa = 0.62）
+
+**查询多样性验证**: 用 Sentence-BERT 嵌入计算同一数据库内查询对的余弦相似度：
+- **低相似度 (< 0.5)**: 45.6% — 例如同一个数据库，一个查询关注广告投放渠道选择，另一个关注用户行为优化
+- **中等相似度 (0.5-0.8)**: 52.4% — 例如一个关注适合种植的水果品种，另一个关注出口标准
+- **高相似度 (> 0.8)**: 仅 2.0% — 极少数重复
+
+#### 自动标注的代码生成流程
+
+基于 GPT-4 的多轮提示管线：
+
+```
+循环（直到分析足够全面或达到最大轮次=9）:
+  1. LLM 根据数据库和查询生成一段 Python 代码 (action)
+  2. 执行代码，获取输出 (observation)
+  3. LLM 解读执行结果
+  4. LLM 判断分析是否足够全面
+     → 足够 → 终止循环，生成最终答案
+     → 不够 → 继续下一轮
+  * 如果代码报错，允许自动修正（每轮最多 2 次，全程最多 4 次）
+```
+
+代码中最常用的 API（排除 `print`）：`groupby`、`merge`、`mean`、`sort_values`、`nlargest`、`to_datetime`、`describe`、`isnull`
+
+### 2.3 具体 Case 示例
+
+#### Case 1: 咖啡店年龄歧视调查
+
+**数据库**: 包含 `member` 表（会员 ID、姓名、年龄、注册日期等）和 `happy_hour_member` 表（欢乐时光活动参与记录）
+
+**查询**: "As a coffee shop manager, I want to investigate whether there is age discrimination."
+
+**多轮代码执行过程**:
+
+**第 1 轮 — 探索会员年龄分布**:
 ```python
 import pandas as pd
 member = pd.read_csv('member.csv')
 print(member['age'].describe())
 print(member.groupby(pd.cut(member['age'], bins=[18,30,40,50,60,70])).size())
 ```
-→ 观察：会员年龄分布信息
+→ **Observation**: 会员年龄范围 18-68，均值 42.3，各年龄段人数较为均匀
 
-**第 2 轮（代码）**: 
+**第 2 轮 — 对比活动参与者年龄**:
 ```python
 happy_members = pd.merge(happy_hour_member, member, on='member_id')
-print(happy_members['age'].mean())
-print(member['age'].mean())
+print(f"Happy hour avg age: {happy_members['age'].mean():.1f}")
+print(f"All members avg age: {member['age'].mean():.1f}")
 ```
-→ 观察：参加欢乐时光的会员与全体会员的平均年龄对比
+→ **Observation**: 欢乐时光参与者平均年龄 41.8，全体会员 42.3，差异很小
 
-**第 3 轮（代码）**: 更深入的统计检验
+**第 3 轮 — 统计检验**:
+```python
+from scipy import stats
+happy_ages = happy_members['age']
+all_ages = member['age']
+t_stat, p_value = stats.ttest_ind(happy_ages, all_ages)
+print(f"t={t_stat:.3f}, p={p_value:.3f}")
+```
+→ **Observation**: p = 0.72，差异不显著
 
-**最终输出**:
-- **Finding 1**: 会员年龄分布较为均匀，各年龄段均有覆盖（数学推理 + 分析推理）
-- **Finding 2**: 欢乐时光参与者的平均年龄与总体会员无显著差异（数学推理）
-- **Suggestion 1**: 数据不支持年龄歧视的假说（逻辑推理）
-- **Suggestion 2**: 建议进一步调查其他可能的差异化因素如消费金额、到店频次（策略推理）
+**最终输出 $\mathbf{y}$**:
 
-### 2.3 LLM 的输入与输出
+**Findings**:
+- 会员年龄分布较为均匀，覆盖 18-68 岁各年龄段（数学推理 + 分析推理）
+- 欢乐时光参与者的平均年龄（41.8 岁）与全体会员（42.3 岁）无显著差异（t-test, p=0.72）（数学推理）
+- 各年龄段在活动中的参与比例与其在会员中的比例基本一致（分析推理）
 
-| | 内容 |
-|---|------|
-| **输入** | ① 数据库（多个 DataFrame/表）② 应用驱动的自然语言查询（含角色设定） |
-| **输出** | ① 多轮 Python 代码（action）② 每轮代码的执行结果（observation）③ 最终答案：Findings 列表 + Suggestions 列表（约 10 个 bullet point） |
+**Suggestions**:
+- 数据不支持年龄歧视的假说，活动对各年龄段会员开放且参与均等（逻辑推理）
+- 建议进一步调查其他维度的差异，如消费金额、到店频次、会员等级等（策略推理）
 
-### 2.4 评分标准
+#### Case 2: 查询多样性示例（同一数据库不同角色）
 
-**主指标 — Helpfulness（有用性）**，通过**成对比较 (Pairwise Comparison)** 评估：
+**数据库**: 蜂蜜生产数据库
 
-- 将两个系统的分析结果并列呈现给评判者（人类或 LLM），评判者选出更有帮助的一个
-- Helpfulness 定义三个维度：① 与查询的相关性 ② 有效且深入的数据解读 ③ 分析视角的多样性
-- 使用 GPT-4o mini + Claude 3.5 Sonnet + Llama 3 8B 三个评判器取平均分
+| 查询重叠度 | 查询 1 | 查询 2 |
+|-----------|--------|--------|
+| **低** | "As a consultant for honey market, I want to study the honey production trend to recommend business strategies for my clients" | "As a curious analyst, I want to study the production trend to understand the US honey industry" |
+| **中** | "As a farmer, I want to determine the suitable fruit varieties to grow on my farm" | "As a fruit exporter, I want to identify the fruits that meet export standards and have a longer shelf life" |
 
-**辅助指标**:
-- BLEU（n-gram 重合度）
-- Entailment score（NLI 模型评估生成内容是否被 Ground-Truth 蕴含）
-- Point-wise helpfulness（人类逐 bullet point 打分：0=不有用, 1=边界有用, 2=非常有用）
+#### Case 3: 人工精标修订示例
 
-**关键结果**: GPT-4 with code generation 的 helpfulness 为 41.88%（与人类精标对比的胜率），说明即使最强模型也远未达到人类水平。
+**原始 GPT-4 自动标注（Test A 中的某条）**:
+
+- Bullet 1: "The dataset contains 500 records of customer transactions"（被标为 **not helpful** — 太泛泛）
+- Bullet 2: "The average purchase amount is $45.67 with a standard deviation of $23.12"（被标为 **borderline helpful**）
+- Bullet 3: "Customers in the 25-34 age group have the highest average spending at $52.30"（被标为 **very helpful**）
+- Bullet 4: "There is a strong positive correlation (r=0.78) between visit frequency and total spend"（被标为 **very helpful**）
+
+**人工修订后的 Test H 版本**: 只保留 very helpful 的 bullet points，移除重复，重新排序保持连贯，必要时做文字编辑。如果 very helpful 少于 3 条，则补充 borderline helpful 的内容。标注一致性：准确率 0.83，Cohen's kappa 0.67。
+
+### 2.4 LLM 的输入与输出
+
+**输入**:
+
+| 输入项 | 详细内容 |
+|--------|---------|
+| **数据库** | 一个或多个 `pd.DataFrame`，LLM 可通过 Python 代码执行环境进行交互 |
+| **查询** | 格式 "As a/the [角色], I want to [意图]"。角色设定帮助 LLM 理解分析的业务背景 |
+| **代码执行环境** | Python 环境（支持 pandas, scipy, numpy 等），允许多轮交互，每轮生成代码 → 执行 → 获取输出 |
+
+**输出**:
+
+| 输出项 | 详细内容 |
+|--------|---------|
+| **中间代码 (actions)** | 平均 3.3 轮 Python 代码片段（数据查询、统计计算、可视化等） |
+| **中间观察 (observations)** | 每轮代码的执行结果（打印输出、统计量等） |
+| **最终答案** | 结构化输出：**Findings** 列表（数据发现，平均 5 条）+ **Suggestions** 列表（建议，平均 5 条），总计约 10 个 bullet point，~400 tokens |
+
+**两种评估设置**:
+- **With code generation**: LLM 可以多轮生成执行 Python 代码（推荐模式，更接近真实分析场景）
+- **Without code generation**: LLM 直接读取表格前 20 行的文本表示，不执行代码（基线对比）
+
+### 2.5 评分标准
+
+#### 主指标：Helpfulness（有用性）— Pairwise Comparison
+
+将两个系统的分析报告并列呈现给评判者，选出更有帮助的一个。胜率即为 Helpfulness 分数（50 表示与标注持平）。
+
+**Helpfulness 的三个维度**（按优先级递减）:
+1. **与查询的相关性** — 分析是否直接回应了用户的分析意图
+2. **洞察力** — 数据解读是否有效且深入
+3. **视角多样性** — 分析角度是否多元（尤其对 Suggestions 而言）
+
+**评判器**:
+- **人类评判**: Cohen's kappa = 0.62（moderate-substantial agreement）
+- **LLM 评判**: GPT-4o mini + Claude 3.5 Sonnet + Llama 3 8B 三个评判器取平均（Spearman 相关系数 0.90，Cohen's kappa 0.45）
+
+**评判 Prompt 模板**:
+> "I have a database of [title]. As a [role], I want to [intention]. I have hired two data analysts to perform the analysis, and they gave me two different reports. Which one is more helpful? When evaluating helpfulness, consider: (1) relevance; (2) insightfulness; (3) diversity of perspectives."
+
+#### 辅助指标
+
+| 指标 | 说明 |
+|------|------|
+| **BLEU** | n-gram 重合度，衡量生成文本与标注的字面相似性 |
+| **Entailment score** | 使用 NLI 模型计算生成内容被 Ground-Truth 蕴含的概率，反映事实正确性 |
+| **Point-wise helpfulness** | 人类逐 bullet point 打分：0 = not helpful, 1 = borderline helpful, 2 = very helpful |
+
+#### 各评判器的一致性验证
+
+| 评判器对 | Cohen's Kappa | 说明 |
+|---------|--------------|------|
+| 人类 vs 人类 | 0.62 | Moderate-substantial |
+| GPT-4o mini vs Claude 3.5 | ~0.45 | Moderate |
+| LLM 整体 Spearman 相关 | 0.90 | 模型排名高度一致 |
+
+### 2.6 关键实验结果
+
+#### 主要结果（Helpfulness 为与标注对比的胜率，50 = 与标注持平）
+
+| 方法 | 参数量 | 代码生成 | Help. (Test A) | Entail. (Test A) | BLEU (Test A) | Help. (Test H) | Entail. (Test H) | BLEU (Test H) |
+|------|--------|---------|---------------|-----------------|--------------|---------------|-----------------|--------------|
+| **Table QA 基线** | | | | | | | | |
+| TAPAS | 337M | ✗ | 19.19 | 1.96 | 11.62 | 16.50 | 3.67 | 9.73 |
+| TAPEX | 406M | ✗ | 15.08 | 3.34 | 14.60 | 9.00 | 3.50 | 13.81 |
+| **Prompt-based LLMs** | | | | | | | | |
+| ChatGPT | ~20B | ✗ | 19.31 | 3.06 | 13.22 | 13.50 | 2.07 | 13.51 |
+| GPT-4 | ~175B | ✗ | 30.43 | 3.35 | 14.90 | 20.50 | 4.36 | 13.71 |
+| ChatGPT | ~20B | ✓ | 26.51 | 2.74 | 14.22 | 21.38 | 2.59 | 14.51 |
+| **GPT-4** | **~175B** | **✓** | **50.79** | **4.59** | **17.77** | **41.88** | **5.48** | **17.46** |
+| **Fine-tuned LLMs** | | | | | | | | |
+| SFT (code gen) | 6B | ✓ | 28.21 | 3.47 | 16.17 | 21.63 | 2.75 | 15.37 |
+| RLHF | 6B | ✓ | 24.71 | 2.92 | 14.51 | 19.13 | 2.73 | 13.64 |
+| **FG-RLHF** | **6B** | **✓** | **35.54** | **3.61** | **16.45** | **25.38** | **3.11** | **15.91** |
+
+#### 人类评估验证
+
+| 对比 | 人类 Pairwise | LLM Pairwise | 人类 Point-wise |
+|------|-------------|-------------|----------------|
+| GPT-4 (code gen) vs GPT-4 (no code) | **66.41** vs 33.59 | **70.07** vs 29.93 | 1.45 vs 1.36 |
+| FG-RLHF vs SFT | **57.72** vs 42.28 | **58.49** vs 41.51 | 1.42 vs 1.30 |
+
+#### Contribution RM 分析
+
+Fine-grained RLHF 中的 Contribution Reward Model 对不同 API 的偏好：
+
+| 高分 API（提取关键信息） | 相关系数 | 低分 API（泛泛展示） | 相关系数 |
+|------------------------|---------|-------------------|---------|
+| `print` | +44.24 | `to_datetime` | -18.96 |
+| `nlargest` | +20.06 | `isnull` | -17.76 |
+| `mean` | +14.56 | `describe` | -12.02 |
+| `sort_values` | +12.23 | `merge` | -10.83 |
+
+说明 RM 倾向于奖励直接提取关键特征的操作，而惩罚仅展示通用统计或数据整理的操作。
+
+### 2.7 关键发现
+
+1. **GPT-4 + 代码生成是目前最强方案**，但 Test H 上胜率仅 41.88%（即 58.12% 的情况下人类标注更好），说明**差距仍然巨大**
+2. **代码生成显著提升分析质量**：GPT-4 with code vs without code 的人类评估胜率是 66.41 vs 33.59
+3. **Fine-grained RLHF 有效**: 在 6B 模型上，FG-RLHF 比 SFT 高 7 个百分点，人类评估 57.72% 胜率。FG-RLHF 更聚焦用户查询，而 SFT 倾向于输出与查询关联不大的通用统计
+4. **传统 Table QA 模型完全不胜任此任务**: TAPAS/TAPEX 的 helpfulness 仅 15-19，因为它们只能做简单的事实检索，无法进行综合分析
+5. **自动标注质量可用但有限**: Test A 中人类评为 "very helpful" 的 bullet point 约占 40%，"not helpful" 约占 30%，经人工精标后 Test H 的质量显著提升
 
 ---
 
