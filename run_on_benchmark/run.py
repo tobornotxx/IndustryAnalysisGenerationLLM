@@ -80,8 +80,8 @@ def main():
     )
     parser.add_argument(
         "--evaluator",
-        default="gpt-4o-mini",
-        help="评估器模型名称（默认 gpt-4o-mini）",
+        default="Pro/moonshotai/Kimi-K2.5",
+        help="评估器模型名称（默认 Pro/moonshotai/Kimi-K2.5）",
     )
 
     args = parser.parse_args()
