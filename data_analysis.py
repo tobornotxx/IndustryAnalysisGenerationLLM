@@ -29,6 +29,72 @@ _DETAILED_DATA_DIR = Path(__file__).parent / "data" / "detailed_data"
 # 主入口
 # ============================================================
 
+def analyze_data(
+    dfs: Dict[str, pd.DataFrame],
+    task_instruction: str,
+    llm: BaseLLM,
+    *,
+    max_queries: int = 5,
+    schema_max_sample_rows: int = 3,
+    schema_max_unique_values: int = 8,
+    code_agent_model: Optional[str] = None,
+    code_agent_kwargs: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, str]]:
+    """
+    通用数据分析入口：对任意 DataFrame 集合执行 LLM 驱动的多步数据分析。
+
+    流程:
+        1. 使用 describe_dataframes_schema 获取所有表的结构
+        2. 将结构信息 + task_instruction 发送给 LLM，生成多条查询指令
+        3. 通过 DataInspectorMCPTool 逐条执行查询
+        4. 返回每条查询的结果列表
+
+    Args:
+        dfs: {表名: DataFrame} 字典
+        task_instruction: 分析任务描述（如 "Find the discrepancy..."）
+        llm: BaseLLM 实例，用于生成分析查询指令
+        max_queries: LLM 最多生成的查询指令数量
+        schema_max_sample_rows: schema 描述中每列展示的示例行数
+        schema_max_unique_values: schema 描述中展示 unique 值的最大数量
+        code_agent_model: 执行查询所用的 CodeAgent 模型
+        code_agent_kwargs: 传递给 query_dataframes 的额外参数
+
+    Returns:
+        List[Dict[str, str]]: 每项为 {"query": str, "result": str}
+    """
+    code_agent_kwargs = code_agent_kwargs or {}
+
+    # ---- Step 1: 生成 Schema ----
+    full_schema = describe_dataframes_schema(
+        dfs,
+        max_sample_rows=schema_max_sample_rows,
+        max_unique_values=schema_max_unique_values,
+    )
+
+    # ---- Step 2: LLM 生成查询指令 ----
+    query_instructions = _generate_query_instructions(
+        llm=llm,
+        region_name="",
+        full_schema=full_schema,
+        max_queries=max_queries,
+        task_instruction=task_instruction,
+    )
+    logger.info(f"[analyze_data] LLM 生成了 {len(query_instructions)} 条查询指令")
+
+    if not query_instructions:
+        logger.warning("[analyze_data] LLM 未生成任何有效查询指令")
+        return []
+
+    # ---- Step 3: 逐条执行查询 ----
+    return _execute_queries(
+        query_instructions=query_instructions,
+        all_dfs=dfs,
+        code_agent_model=code_agent_model,
+        code_agent_kwargs=code_agent_kwargs,
+        log_prefix="analyze_data",
+    )
+
+
 def analyze_region(
     assessment_df: pd.DataFrame,
     region_name: str,
@@ -115,86 +181,20 @@ def analyze_region(
         logger.warning(f"[{region_name}] LLM 未生成任何有效查询指令")
         return f"# {region_name} 数据分析报告\n\n未能生成有效的查询指令，请检查输入数据和 LLM 配置。"
 
-    # ---- Step 4: 使用 MCP Tool 逐条执行查询（只传入相关 Sheet）----
-    mcp_tool = DataInspectorMCPTool()
-    results: List[str] = []
-
-    # 建立 sheet 名称到 df 的映射
-    all_sheet_names = list(all_dfs.keys())
-
-    for i, instr_item in enumerate(query_instructions, 1):
-        query_text = instr_item["query"]
-        requested_sheets = instr_item.get("sheets", [])
-
-        logger.info(
-            f"[{region_name}] 执行查询 {i}/{len(query_instructions)}: "
-            f"{query_text[:80]}... | sheets={requested_sheets}"
-        )
-
-        # 筛选出本次查询需要的 DataFrame
-        if requested_sheets:
-            filtered_dfs = {}
-            for sname in requested_sheets:
-                if sname in all_dfs:
-                    filtered_dfs[sname] = all_dfs[sname]
-                else:
-                    # 容错：sheet 名可能有细微差异，做模糊匹配
-                    matched = [k for k in all_sheet_names if sname in k or k in sname]
-                    if matched:
-                        for m in matched:
-                            filtered_dfs[m] = all_dfs[m]
-                        logger.warning(
-                            f"[{region_name}] Sheet '{sname}' 未精确匹配，"
-                            f"模糊匹配到: {matched}"
-                        )
-                    else:
-                        logger.warning(
-                            f"[{region_name}] Sheet '{sname}' 不存在，跳过"
-                        )
-            # 如果筛选后为空，回退到全部 dfs
-            if not filtered_dfs:
-                logger.warning(
-                    f"[{region_name}] 查询 {i} 的 sheets 全部无法匹配，"
-                    f"回退使用全部数据"
-                )
-                filtered_dfs = all_dfs
-        else:
-            # 未指定 sheets，使用全部
-            filtered_dfs = all_dfs
-
-        logger.info(
-            f"[{region_name}] 查询 {i} 实际使用 {len(filtered_dfs)} 个 Sheet: "
-            f"{list(filtered_dfs.keys())}"
-        )
-
-        # 默认限制 CodeAgent 的最大步数
-        effective_max_steps = code_agent_kwargs.get("max_steps", 3)
-        agent_kwargs = {
-            k: v for k, v in code_agent_kwargs.items() if k != "max_steps"
-        }
-
-        result = mcp_tool.run({
-            "action": "query",
-            "dfs": filtered_dfs,
-            "instruction": query_text,
-            "model": code_agent_model,
-            "max_steps": effective_max_steps,
-            "agent_kwargs": agent_kwargs,
-        })
-
-        if "result" in result:
-            results.append(
-                f"### 查询 {i}: {query_text}\n\n{result['result']}"
-            )
-        else:
-            error_msg = result.get("error", "未知错误")
-            results.append(
-                f"### 查询 {i}: {query_text}\n\n[查询失败] {error_msg}"
-            )
-
-        logger.info(f"[{region_name}] 查询 {i} 完成")
+    # ---- Step 4: 逐条执行查询 ----
+    query_results = _execute_queries(
+        query_instructions=query_instructions,
+        all_dfs=all_dfs,
+        code_agent_model=code_agent_model,
+        code_agent_kwargs=code_agent_kwargs,
+        log_prefix=region_name,
+    )
 
     # ---- Step 5: 汇总结果 ----
+    results = []
+    for qr in query_results:
+        results.append(f"### 查询: {qr['query']}\n\n{qr['result']}")
+
     final_result = (
         f"# {region_name} 数据分析报告\n\n"
         + "\n\n---\n\n".join(results)
@@ -240,20 +240,119 @@ def _find_supplementary_files(
     return sorted(matched, key=lambda p: p.name)
 
 
+def _execute_queries(
+    query_instructions: List[Dict[str, Any]],
+    all_dfs: Dict[str, pd.DataFrame],
+    code_agent_model: Optional[str],
+    code_agent_kwargs: Dict[str, Any],
+    log_prefix: str = "",
+) -> List[Dict[str, str]]:
+    """
+    逐条执行查询指令，返回结构化结果列表。
+
+    Args:
+        query_instructions: [{"query": str, "sheets": List[str]}, ...]
+        all_dfs: 全部可用的 {sheet_name: DataFrame}
+        code_agent_model: CodeAgent 模型名
+        code_agent_kwargs: 额外参数
+        log_prefix: 日志前缀
+
+    Returns:
+        List[Dict[str, str]]: [{"query": str, "result": str}, ...]
+    """
+    mcp_tool = DataInspectorMCPTool()
+    results: List[Dict[str, str]] = []
+    all_sheet_names = list(all_dfs.keys())
+
+    for i, instr_item in enumerate(query_instructions, 1):
+        query_text = instr_item["query"]
+        requested_sheets = instr_item.get("sheets", [])
+
+        logger.info(
+            f"[{log_prefix}] 执行查询 {i}/{len(query_instructions)}: "
+            f"{query_text[:80]}... | sheets={requested_sheets}"
+        )
+
+        # 筛选出本次查询需要的 DataFrame
+        if requested_sheets:
+            filtered_dfs = {}
+            for sname in requested_sheets:
+                if sname in all_dfs:
+                    filtered_dfs[sname] = all_dfs[sname]
+                else:
+                    matched = [k for k in all_sheet_names if sname in k or k in sname]
+                    if matched:
+                        for m in matched:
+                            filtered_dfs[m] = all_dfs[m]
+                        logger.warning(
+                            f"[{log_prefix}] Sheet '{sname}' 未精确匹配，"
+                            f"模糊匹配到: {matched}"
+                        )
+                    else:
+                        logger.warning(
+                            f"[{log_prefix}] Sheet '{sname}' 不存在，跳过"
+                        )
+            if not filtered_dfs:
+                logger.warning(
+                    f"[{log_prefix}] 查询 {i} 的 sheets 全部无法匹配，"
+                    f"回退使用全部数据"
+                )
+                filtered_dfs = all_dfs
+        else:
+            filtered_dfs = all_dfs
+
+        logger.info(
+            f"[{log_prefix}] 查询 {i} 实际使用 {len(filtered_dfs)} 个 Sheet: "
+            f"{list(filtered_dfs.keys())}"
+        )
+
+        effective_max_steps = code_agent_kwargs.get("max_steps", 3)
+        agent_kwargs = {
+            k: v for k, v in code_agent_kwargs.items() if k != "max_steps"
+        }
+
+        result = mcp_tool.run({
+            "action": "query",
+            "dfs": filtered_dfs,
+            "instruction": query_text,
+            "model": code_agent_model,
+            "max_steps": effective_max_steps,
+            "agent_kwargs": agent_kwargs,
+        })
+
+        if "result" in result:
+            results.append({
+                "query": query_text,
+                "result": result["result"],
+            })
+        else:
+            error_msg = result.get("error", "未知错误")
+            results.append({
+                "query": query_text,
+                "result": f"[查询失败] {error_msg}",
+            })
+
+        logger.info(f"[{log_prefix}] 查询 {i} 完成")
+
+    return results
+
+
 def _generate_query_instructions(
     llm: BaseLLM,
     region_name: str,
     full_schema: str,
     max_queries: int = 5,
+    task_instruction: str = "",
 ) -> List[Dict[str, Any]]:
     """
     利用 LLM 根据表结构信息，生成多条数据分析的查询指令（含涉及的 Sheet 名）。
 
     Args:
         llm: BaseLLM 实例
-        region_name: 目标地区名称
+        region_name: 目标地区名称（泛用模式下可为空）
         full_schema: 所有数据表的结构描述（合并后）
         max_queries: 最多生成的查询条数
+        task_instruction: 泛用分析任务描述（非空时使用泛用模板分支）
 
     Returns:
         List[Dict]: 每项为 {"query": str, "sheets": List[str]}
@@ -264,6 +363,7 @@ def _generate_query_instructions(
         region_name=region_name,
         assessment_schema=full_schema,
         max_queries=max_queries,
+        task_instruction=task_instruction,
     )
 
     messages = [

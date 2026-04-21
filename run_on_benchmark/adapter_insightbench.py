@@ -2,6 +2,7 @@
 adapter_insightbench.py — InsightBench 适配器
 
 将我们的 Agent（CodeAgent + LLM）接入 InsightBench 的数据格式。
+复用 data_analysis.analyze_data() 作为核心分析引擎。
 """
 
 import json
@@ -17,8 +18,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from llm import OpenAILikeLLM, LLMConfig
-from code_agent import CodeAgent
-from utils.data_inspector import describe_dataframes_schema
+from data_analysis import analyze_data
 from utils import logger
 
 
@@ -48,59 +48,54 @@ def run_agent_on_dataset(
     # ---- 1. 读入数据 ----
     df, goal = _load_dataset_and_goal(dataset_path)
 
-    # ---- 2. 构造 Schema ----
-    schema = describe_dataframes_schema(
-        {"data": df},
-        max_sample_rows=3,
-        max_unique_values=10,
+    # ---- 2. 使用通用 analyze_data 执行分析 ----
+    llm = OpenAILikeLLM(config=LLMConfig())
+
+    query_results = analyze_data(
+        dfs={"data": df},
+        task_instruction=goal,
+        llm=llm,
+        max_queries=max_queries,
+        schema_max_sample_rows=3,
+        schema_max_unique_values=10,
+        code_agent_model=code_agent_model,
+        code_agent_kwargs={"max_steps": code_agent_max_steps},
     )
 
-    # ---- 3. 生成分析问题 ----
-    llm = OpenAILikeLLM(config=LLMConfig())
-    questions = _generate_questions(llm, schema, goal, max_queries)
-    logger.info(f"[InsightBench] 生成了 {len(questions)} 个分析问题")
+    logger.info(f"[InsightBench] analyze_data 返回 {len(query_results)} 条查询结果")
 
-    # ---- 4. 逐个问题执行代码分析 ----
-    agent_kwargs = {}
-    if code_agent_model:
-        agent_kwargs["model"] = code_agent_model
-
-    agent = CodeAgent(**agent_kwargs)
+    # ---- 3. 从查询结果中提取 insights ----
     insights: List[Dict[str, str]] = []
+    for i, qr in enumerate(query_results, 1):
+        query_text = qr["query"]
+        result_text = qr["result"]
 
-    for i, q in enumerate(questions, 1):
-        logger.info(f"[InsightBench] 执行问题 {i}/{len(questions)}: {q['question'][:80]}")
-
-        instruction = (
-            f"你有一个 pandas DataFrame 变量 `df`，它来自 CSV 文件。\n"
-            f"分析目标: {goal}\n"
-            f"当前分析问题: {q['question']}\n\n"
-            f"请编写 Python 代码分析数据，print 出关键的分析结果（数值、统计量、趋势描述等）。\n"
-            f"不需要画图。用 print 输出结论性的文字和数值。"
-        )
-
-        result = agent.run(
-            input=instruction,
-            max_steps=code_agent_max_steps,
-            additional_args={"df": df},
-        )
-
-        # 从代码执行结果中提取 insight
-        insight_text = _extract_insight(llm, q["question"], result, goal)
-
+        insight_text = _extract_insight(llm, query_text, result_text, goal)
         insights.append({
-            "question": q["question"],
+            "question": query_text,
             "insight": insight_text,
-            "type": q.get("type", "descriptive"),
+            "type": _infer_question_type(query_text),
         })
 
-    # ---- 5. 生成 Summary ----
+    # ---- 4. 生成 Summary ----
     summary = _generate_summary(llm, insights, goal)
 
     return {
         "insights": insights,
         "summary": summary,
     }
+
+
+def _infer_question_type(question: str) -> str:
+    """根据查询文本简单推断问题类型。"""
+    q_lower = question.lower()
+    if any(kw in q_lower for kw in ["预测", "趋势", "forecast", "predict", "trend"]):
+        return "predictive"
+    if any(kw in q_lower for kw in ["建议", "推荐", "应该", "recommend", "should", "action"]):
+        return "prescriptive"
+    if any(kw in q_lower for kw in ["为什么", "原因", "相关", "why", "cause", "correlat"]):
+        return "diagnostic"
+    return "descriptive"
 
 
 def load_ground_truth(dataset_dir: str) -> Dict[str, Any]:
@@ -205,40 +200,6 @@ def _load_dataset_and_goal(dataset_path: Path) -> tuple[pd.DataFrame, str]:
     return df, goal
 
 
-def _generate_questions(
-    llm: OpenAILikeLLM,
-    schema: str,
-    goal: str,
-    max_queries: int,
-) -> List[Dict[str, str]]:
-    """让 LLM 根据 Schema + Goal 生成多角度分析问题。"""
-
-    prompt = f"""You are a data analytics expert. Given a dataset and an analysis goal, generate {max_queries} analysis questions.
-
-Dataset Schema:
-{schema}
-
-Analysis Goal: {goal}
-
-Generate exactly {max_queries} questions covering these types:
-- descriptive: What happened? (distributions, summaries, counts)
-- diagnostic: Why did it happen? (correlations, segmentation, root cause)
-- predictive: What will likely happen? (trends, forecasting)
-- prescriptive: What actions should be taken? (recommendations)
-
-Return as JSON array:
-[
-  {{"question": "...", "type": "descriptive"}},
-  {{"question": "...", "type": "diagnostic"}},
-  ...
-]
-
-Return ONLY the JSON array, no other text."""
-
-    response = llm.chat(prompt)
-    return _parse_json_list(response.content, max_queries)
-
-
 def _extract_insight(
     llm: OpenAILikeLLM,
     question: str,
@@ -246,7 +207,7 @@ def _extract_insight(
     goal: str,
 ) -> str:
     """从代码执行结果中提取一句话 Insight。"""
-    if not code_output:
+    if not code_output or code_output.startswith("[查询失败]"):
         return "Analysis failed - no code output."
 
     prompt = f"""Based on the following code execution output, provide a concise one-paragraph insight.
@@ -301,7 +262,6 @@ def _parse_notebook_gt(notebook_path: Path) -> Dict[str, Any]:
     for cell in nb.get("cells", []):
         if cell["cell_type"] == "markdown":
             text = "".join(cell["source"])
-            # 简单启发式：包含 "insight" / "finding" 的 markdown 单元格
             if any(kw in text.lower() for kw in ["insight", "finding", "observation"]):
                 insights.append(text.strip())
             if any(kw in text.lower() for kw in ["summary", "conclusion", "recommendation"]):
@@ -311,38 +271,3 @@ def _parse_notebook_gt(notebook_path: Path) -> Dict[str, Any]:
         "insights": insights,
         "summary": summary.strip(),
     }
-
-
-def _parse_json_list(text: str, max_items: int) -> List[Dict[str, str]]:
-    """从 LLM 输出中解析 JSON 列表。"""
-    # 去掉 markdown 代码块
-    text = re.sub(r"```json\s*", "", text)
-    text = re.sub(r"```\s*", "", text)
-    # 去掉 <think> 标签
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-
-    try:
-        items = json.loads(text.strip())
-        if isinstance(items, list):
-            return items[:max_items]
-    except json.JSONDecodeError:
-        pass
-
-    # 回退：尝试找到第一个 [ 和最后一个 ]
-    start = text.find("[")
-    end = text.rfind("]")
-    if start >= 0 and end > start:
-        try:
-            items = json.loads(text[start : end + 1])
-            if isinstance(items, list):
-                return items[:max_items]
-        except json.JSONDecodeError:
-            pass
-
-    # 最终回退：生成默认问题
-    logger.warning("[InsightBench] 无法解析 LLM 返回的问题列表，使用默认问题")
-    return [
-        {"question": "What are the main distributions in this dataset?", "type": "descriptive"},
-        {"question": "What trends or patterns exist over time?", "type": "diagnostic"},
-        {"question": "What anomalies or outliers can be found?", "type": "diagnostic"},
-    ]
