@@ -43,17 +43,10 @@ def run_agent_on_dataset(
             "summary": str,
         }
     """
-    dataset_dir = Path(dataset_dir)
+    dataset_path = Path(dataset_dir)
 
     # ---- 1. 读入数据 ----
-    csv_path = dataset_dir / "data.csv"
-    if not csv_path.exists():
-        raise FileNotFoundError(f"data.csv not found in {dataset_dir}")
-
-    df = pd.read_csv(csv_path)
-
-    # 读取 goal
-    goal = _read_goal(dataset_dir)
+    df, goal = _load_dataset_and_goal(dataset_path)
 
     # ---- 2. 构造 Schema ----
     schema = describe_dataframes_schema(
@@ -121,7 +114,18 @@ def load_ground_truth(dataset_dir: str) -> Dict[str, Any]:
     Returns:
         {"insights": [str, ...], "summary": str}
     """
-    dataset_dir = Path(dataset_dir)
+    dataset_path = Path(dataset_dir)
+
+    # 支持直接传入新版 flag-*.json
+    if dataset_path.is_file() and dataset_path.suffix.lower() == ".json":
+        with open(dataset_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {
+            "insights": data.get("insights", []),
+            "summary": data.get("summary", ""),
+        }
+
+    dataset_dir = dataset_path
 
     # 尝试预处理好的 JSON
     gt_file = dataset_dir / "ground_truth.json"
@@ -159,6 +163,46 @@ def _read_goal(dataset_dir: Path) -> str:
             else:
                 return p.read_text(encoding="utf-8").strip()
     return "Perform a comprehensive data analysis and find interesting insights."
+
+
+def _load_dataset_and_goal(dataset_path: Path) -> tuple[pd.DataFrame, str]:
+    """
+    支持两种 InsightBench 数据格式:
+    1) 旧格式目录: dataset_xxx/data.csv (+ goal.txt/metadata.json)
+    2) 新格式文件: data/notebooks/flag-*.json (内含 dataset_csv_path 和 metadata.goal)
+    """
+    # 新版: 直接给 flag-*.json
+    if dataset_path.is_file() and dataset_path.suffix.lower() == ".json":
+        with open(dataset_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+
+        csv_rel = meta.get("dataset_csv_path")
+        if not csv_rel:
+            raise FileNotFoundError(f"dataset_csv_path not found in {dataset_path}")
+
+        csv_path = (dataset_path.parent.parent / csv_rel).resolve()
+        if not csv_path.exists():
+            # 兜底: 相对项目仓库根路径
+            csv_path = (dataset_path.parents[2] / csv_rel).resolve()
+        if not csv_path.exists():
+            raise FileNotFoundError(f"CSV not found for {dataset_path}: {csv_rel}")
+
+        df = pd.read_csv(csv_path)
+        goal = (
+            meta.get("metadata", {}).get("goal")
+            or meta.get("goal")
+            or "Perform a comprehensive data analysis and find interesting insights."
+        )
+        return df, goal
+
+    # 旧版: dataset 目录
+    csv_path = dataset_path / "data.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(f"data.csv not found in {dataset_path}")
+
+    df = pd.read_csv(csv_path)
+    goal = _read_goal(dataset_path)
+    return df, goal
 
 
 def _generate_questions(

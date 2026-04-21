@@ -63,12 +63,14 @@ def evaluate_insightbench(
         gt_dir = data_dir / "data" / ds_name
         if not gt_dir.exists():
             gt_dir = data_dir / ds_name
-        if not gt_dir.exists():
+        gt_json = data_dir / "data" / "notebooks" / f"{ds_name}.json"
+        if not gt_dir.exists() and not gt_json.exists():
             logger.warning(f"[Eval] GT not found for {ds_name}, skipping")
             continue
 
         try:
-            gt = load_ground_truth(str(gt_dir))
+            gt_target = gt_json if gt_json.exists() else gt_dir
+            gt = load_ground_truth(str(gt_target))
         except FileNotFoundError:
             logger.warning(f"[Eval] Could not load GT for {ds_name}, skipping")
             continue

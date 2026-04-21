@@ -106,28 +106,35 @@ def _run_insightbench(args, output_dir: Path):
 
     if not args.eval_only:
         # ---- 运行 Agent ----
-        dataset_dirs = sorted(data_dir.glob("data/dataset_*"))
-        if not dataset_dirs:
+        dataset_items = sorted(data_dir.glob("data/dataset_*"))
+        if not dataset_items:
             # 兼容直接指向 data/ 目录的情况
-            dataset_dirs = sorted(data_dir.glob("dataset_*"))
-        if not dataset_dirs:
-            print(f"[ERROR] 在 {data_dir} 下未找到 dataset_* 目录，请检查路径。")
+            dataset_items = sorted(data_dir.glob("dataset_*"))
+        if not dataset_items:
+            # 兼容新版 InsightBench: data/notebooks/flag-*.json
+            dataset_items = sorted(data_dir.glob("data/notebooks/flag-*.json"))
+        if not dataset_items:
+            print(
+                f"[ERROR] 在 {data_dir} 下未找到可用数据集。"
+                f"支持目录: data/dataset_* 或 dataset_*；"
+                f"支持文件: data/notebooks/flag-*.json。"
+            )
             return
 
         if args.limit > 0:
-            dataset_dirs = dataset_dirs[: args.limit]
+            dataset_items = dataset_items[: args.limit]
 
-        print(f"[InsightBench] 共 {len(dataset_dirs)} 个数据集")
+        print(f"[InsightBench] 共 {len(dataset_items)} 个数据集")
         all_results = {}
         start_time = time.time()
 
-        for i, ds_dir in enumerate(dataset_dirs, 1):
-            ds_name = ds_dir.name
-            print(f"  [{i}/{len(dataset_dirs)}] {ds_name} ...", end=" ", flush=True)
+        for i, ds_item in enumerate(dataset_items, 1):
+            ds_name = ds_item.stem if ds_item.is_file() else ds_item.name
+            print(f"  [{i}/{len(dataset_items)}] {ds_name} ...", end=" ", flush=True)
             t0 = time.time()
             try:
                 result = run_agent_on_dataset(
-                    dataset_dir=str(ds_dir),
+                    dataset_dir=str(ds_item),
                     max_queries=args.max_queries,
                 )
                 all_results[ds_name] = result
