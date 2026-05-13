@@ -1,0 +1,26 @@
+{
+  "avg_insight_score": 0.2056,
+  "avg_summary_score": 0.2,
+  "overall": 0.2028,
+  "n_datasets_evaluated": 3,
+  "per_dataset": {
+    "flag-1": {
+      "insight_score": 0.4583,
+      "summary_score": 0.6,
+      "n_gt_insights": 6,
+      "n_pred_insights": 5
+    },
+    "flag-10": {
+      "insight_score": 0.0,
+      "summary_score": 0.0,
+      "n_gt_insights": 4,
+      "n_pred_insights": 5
+    },
+    "flag-100": {
+      "insight_score": 0.1583,
+      "summary_score": 0.0,
+      "n_gt_insights": 6,
+      "n_pred_insights": 5
+    }
+  }
+}

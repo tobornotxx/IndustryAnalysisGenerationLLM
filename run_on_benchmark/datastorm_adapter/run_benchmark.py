@@ -1,0 +1,234 @@
+"""在 InsightBench 上运行 MyDataStorm 的入口脚本。
+
+用法：
+    # 从 insight-bench 目录运行
+    cd "Report Generation/run_on_benchmark/insight-bench"
+
+    python ../datastorm_adapter/run_benchmark.py \
+        --openai_api_key sk-... \
+        --savedir results/datastorm \
+        --benchmark_type toy
+
+    # 或者设置环境变量后省略 --openai_api_key
+    export OPENAI_API_KEY=sk-...
+    python ../datastorm_adapter/run_benchmark.py --benchmark_type standard
+
+参数说明：
+    --benchmark_type  toy(5条) / standard(30条) / full(100条)，默认 toy
+    --n_datasets      只跑前 N 条数据集（覆盖 benchmark_type 的上限），默认跑全部
+    --datadir         InsightBench 数据目录，默认 data/notebooks
+    --savedir_base    结果保存根目录，默认 results/datastorm
+    --openai_api_key  OpenAI API key（也可用环境变量）
+    --model_name      LLM 模型，默认 gpt-4o
+    --max_layers      DataSTORM 探索层数，默认 3
+    --score_name      评估指标 rouge1 / g_eval，默认 rouge1
+    --start_from      从第几个 flag 开始（断点续跑），默认 1
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import sys
+import traceback
+from pathlib import Path
+
+# 路径计算：所有路径都基于脚本自身位置，与运行目录无关
+_script_dir    = os.path.dirname(os.path.abspath(__file__))   # .../datastorm_adapter
+_run_on_bench  = os.path.dirname(_script_dir)                  # .../run_on_benchmark
+_insight_bench = os.path.join(_run_on_bench, "insight-bench")  # .../insight-bench
+
+for _p in [_run_on_bench, _insight_bench]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+logger = logging.getLogger(__name__)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run MyDataStorm on InsightBench"
+    )
+    parser.add_argument("--openai_api_key", default=None)
+    parser.add_argument("--benchmark_type", default="toy",
+                        choices=["toy", "standard", "full"])
+    parser.add_argument("--n_datasets", type=int, default=None,
+                        help="只跑前 N 条数据集，不指定则跑 benchmark_type 对应的全部")
+    parser.add_argument("--datadir", default=None,
+                        help="InsightBench 数据目录，默认自动定位到 insight-bench/data/notebooks")
+    parser.add_argument("--savedir_base", default=None,
+                        help="结果保存根目录，默认 insight-bench/results/datastorm")
+    parser.add_argument("--model_name", default="gpt-5.4-mini")
+    parser.add_argument("--max_layers", type=int, default=3)
+    parser.add_argument("--score_name", default="rouge1",
+                        choices=["rouge1", "g_eval"])
+    parser.add_argument("--start_from", type=int, default=1,
+                        help="从第几个 flag 开始（断点续跑）")
+    parser.add_argument("--verbose", action="store_true")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    # 路径解析（不依赖运行目录）
+    datadir     = args.datadir     or os.path.join(_insight_bench, "data", "notebooks")
+    savedir_base_str = args.savedir_base or os.path.join(_insight_bench, "results", "datastorm")
+
+    if not os.path.exists(datadir):
+        print(f"ERROR: 数据目录不存在: {datadir}")
+        sys.exit(1)
+
+    from insightbench import benchmarks
+    from datastorm_adapter.adapter import DataStormAdapter
+
+    # 设置 API key
+    if args.openai_api_key:
+        os.environ["OPENAI_API_KEY"] = args.openai_api_key
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("ERROR: 需要提供 OpenAI API key（--openai_api_key 或 OPENAI_API_KEY 环境变量）")
+        sys.exit(1)
+
+    # 加载 benchmark 数据集列表
+    dataset_paths = benchmarks.get_benchmark(args.benchmark_type, datadir)
+    if args.n_datasets is not None:
+        dataset_paths = dataset_paths[: args.n_datasets]
+    logger.info(
+        "Benchmark: %s (%d datasets)", args.benchmark_type, len(dataset_paths)
+    )
+
+    # 创建保存目录
+    savedir_base = Path(savedir_base_str)
+    savedir_base.mkdir(parents=True, exist_ok=True)
+
+    # 初始化适配器（复用同一个实例，避免重复初始化）
+    adapter = DataStormAdapter(
+        model_name=args.model_name,
+        max_layers=args.max_layers,
+        openai_api_key=args.openai_api_key,
+        verbose=args.verbose,
+    )
+
+    all_scores: list[dict] = []
+    summary_path = savedir_base / "summary.json"
+
+    # 加载已有结果（断点续跑）
+    if summary_path.exists():
+        with open(summary_path) as f:
+            all_scores = json.load(f)
+        logger.info("Loaded %d existing results from %s", len(all_scores), summary_path)
+
+    completed_flags = {r["flag"] for r in all_scores}
+
+    for dataset_json_path in dataset_paths:
+        # 解析 flag id
+        flag_id = Path(dataset_json_path).stem  # e.g. "flag-1"
+        flag_num = int(flag_id.split("-")[1])
+
+        if flag_num < args.start_from:
+            continue
+        if flag_id in completed_flags:
+            logger.info("Skipping %s (already completed)", flag_id)
+            continue
+
+        logger.info("=" * 60)
+        logger.info("Processing %s (%s)", flag_id, dataset_json_path)
+
+        dataset_dict = benchmarks.load_dataset_dict(dataset_json_path)
+        metadata = dataset_dict.get("metadata", {})
+
+        savedir = savedir_base / flag_id
+        savedir.mkdir(parents=True, exist_ok=True)
+        adapter.savedir = str(savedir)
+
+        # JSON 里的 csv 路径是相对于 insight-bench 目录的，转成绝对路径
+        csv_path = os.path.join(_insight_bench, dataset_dict["dataset_csv_path"])
+        user_csv = dataset_dict.get("user_dataset_csv_path")
+        if user_csv:
+            user_csv = os.path.join(_insight_bench, user_csv)
+
+        try:
+            pred_insights, pred_summary = adapter.get_insights(
+                dataset_csv_path=csv_path,
+                user_dataset_csv_path=user_csv,
+                goal=metadata.get("goal", "Find interesting trends in this dataset"),
+                dataset_description=metadata.get("dataset_description", ""),
+                return_summary=True,
+            )
+
+            score_insights = benchmarks.evaluate_insights(
+                pred_insights=pred_insights,
+                gt_insights=dataset_dict["insights"],
+                score_name=args.score_name,
+            )
+            score_summary = benchmarks.evaluate_summary(
+                pred=pred_summary,
+                gt=dataset_dict.get("summary", ""),
+                score_name=args.score_name,
+            )
+
+            result = {
+                "flag": flag_id,
+                "score_insights": float(score_insights),
+                "score_summary": float(score_summary),
+                "n_pred_insights": len(pred_insights),
+                "n_gt_insights": len(dataset_dict["insights"]),
+                "pred_summary": pred_summary[:300],
+                "status": "ok",
+            }
+
+            # 保存单条结果
+            with open(savedir / "result.json", "w") as f:
+                json.dump({
+                    **result,
+                    "pred_insights": pred_insights,
+                    "gt_insights": dataset_dict["insights"],
+                }, f, indent=2, ensure_ascii=False)
+
+            logger.info(
+                "%s → score_insights=%.4f, score_summary=%.4f",
+                flag_id, score_insights, score_summary,
+            )
+
+        except Exception as e:
+            logger.error("Failed on %s: %s", flag_id, e)
+            traceback.print_exc()
+            result = {
+                "flag": flag_id,
+                "score_insights": 0.0,
+                "score_summary": 0.0,
+                "status": f"error: {e}",
+            }
+
+        all_scores.append(result)
+
+        # 每条结果后立即保存 summary（防止中途崩溃丢失进度）
+        with open(summary_path, "w") as f:
+            json.dump(all_scores, f, indent=2, ensure_ascii=False)
+
+    # 打印汇总统计
+    ok_results = [r for r in all_scores if r.get("status") == "ok"]
+    if ok_results:
+        avg_insights = sum(r["score_insights"] for r in ok_results) / len(ok_results)
+        avg_summary = sum(r["score_summary"] for r in ok_results) / len(ok_results)
+        print("\n" + "=" * 60)
+        print(f"Benchmark: {args.benchmark_type} | Model: {args.model_name}")
+        print(f"Completed: {len(ok_results)}/{len(dataset_paths)}")
+        print(f"Avg score_insights ({args.score_name}): {avg_insights:.4f}")
+        print(f"Avg score_summary  ({args.score_name}): {avg_summary:.4f}")
+        print(f"Results saved to: {savedir_base.resolve()}")
+        print("=" * 60)
+    else:
+        print("No successful results.")
+
+
+if __name__ == "__main__":
+    main()
