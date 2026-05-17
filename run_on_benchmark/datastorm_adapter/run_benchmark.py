@@ -61,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--datadir", default=None,
                         help="InsightBench 数据目录，默认自动定位到 insight-bench/data/notebooks")
     parser.add_argument("--savedir_base", default=None,
-                        help="结果保存根目录，默认 insight-bench/results/datastorm")
+                        help="结果保存根目录，默认 Report Generation/results/datastorm")
     parser.add_argument("--model_name", default="gpt-5.4-mini")
     parser.add_argument("--max_layers", type=int, default=3)
     parser.add_argument("--start_from", type=int, default=1,
@@ -79,8 +79,9 @@ def main() -> None:
     )
 
     # 路径解析（不依赖运行目录）
+    _report_gen_dir = os.path.dirname(_run_on_bench)  # .../Report Generation
     datadir     = args.datadir     or os.path.join(_insight_bench, "data", "notebooks")
-    savedir_base_str = args.savedir_base or os.path.join(_insight_bench, "results", "datastorm")
+    savedir_base_str = args.savedir_base or os.path.join(_report_gen_dir, "results", "datastorm")
 
     if not os.path.exists(datadir):
         print(f"ERROR: 数据目录不存在: {datadir}")
@@ -199,6 +200,7 @@ def main() -> None:
                 "n_pred_insights": len(pred_insights),
                 "n_gt_insights": len(dataset_dict["insights"]),
                 "pred_summary": pred_summary[:300],
+                "scorer": get_scorer_config(),
                 "status": "ok",
             }
 
@@ -233,10 +235,24 @@ def main() -> None:
 
     # 打印汇总统计
     ok_results = [r for r in all_scores if r.get("status") == "ok"]
+    scorer_cfg = get_scorer_config()
+    run_info = {
+        "benchmark_type": args.benchmark_type,
+        "model_name": args.model_name,
+        "max_layers": args.max_layers,
+        "scorer": scorer_cfg,
+        "n_datasets": len(dataset_paths),
+        "n_completed": len(ok_results),
+        "n_errors": len(all_scores) - len(ok_results),
+    }
+
+    # 保存 run_info.json
+    with open(savedir_base / "run_info.json", "w") as f:
+        json.dump(run_info, f, indent=2, ensure_ascii=False)
+
     if ok_results:
         avg_insights = sum(r["score_insights"] for r in ok_results) / len(ok_results)
         avg_summary = sum(r["score_summary"] for r in ok_results) / len(ok_results)
-        scorer_cfg = get_scorer_config()
         print("\n" + "=" * 60)
         print(f"Benchmark: {args.benchmark_type} | Model: {args.model_name}")
         print(f"Scorer: G-Eval | Judge: {scorer_cfg['model']} | logprobs: {scorer_cfg['logprobs']}")

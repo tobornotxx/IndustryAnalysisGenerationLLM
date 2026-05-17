@@ -20,6 +20,7 @@ import re
 import sys
 import os
 import json as _json
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,10 @@ class DataStormAdapter:
         finally:
             bridge.close()
 
+        # 保存完整报告到 savedir（中间产物）
+        if self.savedir:
+            self._save_report(report, query)
+
         # 4. 从 FinalReport 提取 insights 和 summary
         pred_insights = self._extract_insights(report)
         if return_summary:
@@ -174,6 +179,50 @@ class DataStormAdapter:
             return pred_insights, pred_summary
 
         return pred_insights
+
+    def _save_report(self, report: FinalReport, query: str) -> None:
+        """保存 DataSTORM 完整报告到 savedir。"""
+        import json as _json_local
+        savedir_path = Path(self.savedir) if not isinstance(self.savedir, Path) else self.savedir
+        savedir_path.mkdir(parents=True, exist_ok=True)
+
+        # 完整报告 markdown
+        md_path = savedir_path / "datastorm_report.md"
+        parts = [
+            f"# {report.title}",
+            f"*{report.subtitle}*",
+            "",
+            report.markdown,
+            "",
+            "## Sources",
+            "",
+        ]
+        for ref in report.references:
+            ref_id = ref.get("id", "")
+            source = ref.get("source", "")
+            question = ref.get("question", "")
+            sql = ref.get("sql", "")
+            parts.append(f"[{ref_id}] {source}: {question}")
+            if sql:
+                parts.append(f"```sql\n{sql}\n```")
+            parts.append("")
+        md_path.write_text("\n".join(parts), encoding="utf-8")
+        logger.info("Report markdown saved to %s", md_path)
+
+        # 报告元数据
+        meta_path = savedir_path / "datastorm_report.json"
+        meta = {
+            "query": query,
+            "title": report.title,
+            "subtitle": report.subtitle,
+            "thesis": {
+                "title": report.thesis.title,
+                "research_strategy": report.thesis.research_strategy,
+            },
+            "n_references": len(report.references),
+        }
+        meta_path.write_text(_json_local.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.info("Report metadata saved to %s", meta_path)
 
     # ------------------------------------------------------------------
     # 内部辅助方法
