@@ -19,6 +19,7 @@ import logging
 import re
 import sys
 import os
+import json as _json
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ class DataStormAdapter:
         model_name: str = "gpt-5.4-mini",
         max_layers: int = 3,
         openai_api_key: str | None = None,
+        api_base: str | None = None,
         savedir: str | None = None,
         verbose: bool = False,
     ) -> None:
@@ -91,14 +93,16 @@ class DataStormAdapter:
         else:
             logging.basicConfig(level=logging.INFO)
 
+        # 构造 LLMConfig：只覆盖显式传入的参数，其余由 llm_config.json + 环境变量提供
+        llm_kwargs: dict = {"exploration_model": model_name, "report_model": model_name}
+        if openai_api_key:
+            llm_kwargs["api_key"] = openai_api_key
+        if api_base:
+            llm_kwargs["api_base"] = api_base
+
         # 构造配置（不含 DB URL，DB 由 CsvDatabaseBridge 提供）
         self._base_config = DataSTORMConfig(
-            llm=LLMConfig(
-                api_key=openai_api_key or os.getenv("OPENAI_API_KEY", ""),
-                exploration_model=model_name,
-                report_model=model_name,
-                temperature=0.7,
-            ),
+            llm=LLMConfig(**llm_kwargs),
             database=DatabaseConfig(url="sqlite:///:memory:", database_type="SQLite"),
             internet=InternetConfig(serper_api_key=""),  # 禁用网络搜索
             exploration=ExplorationConfig(
@@ -113,6 +117,7 @@ class DataStormAdapter:
                 max_web_queries_per_section=0,  # 禁用报告阶段的 web 查询
             ),
         )
+        self._llm = LLMClient(self._base_config.llm)
 
     # ------------------------------------------------------------------
     # 主接口：与 InsightBench Agent.get_insights() 签名一致
@@ -189,7 +194,7 @@ class DataStormAdapter:
         绕过 DataSTORMPipeline.__init__ 中的 psycopg2 初始化，
         直接注入 CsvDatabaseBridge。
         """
-        llm = LLMClient(config.llm)
+        llm = self._llm
         searcher = WebSearcher(config.internet)  # serper_api_key="" → 自动返回空结果
 
         planner = PlannerAgent(llm, config)
@@ -212,24 +217,60 @@ class DataStormAdapter:
     def _extract_insights(self, report: FinalReport) -> list[str]:
         """从 FinalReport 中提取 insights list。
 
-        优先从 references（每条引用对应一个数据库洞察），
-        回退到从 markdown 正文中提取句子。
+        把 report.markdown + references（SQL 查询结果）拼接后由 LLM 浓缩为简洁的 insight statements。
         """
-        insights: list[str] = []
-
-        # 方案 A：从 references 提取（每个 reference 是一个有据可查的洞察）
+        # 拼接所有可用内容
+        parts = []
+        if report.markdown:
+            parts.append(report.markdown)
         if report.references:
             for ref in report.references:
-                # reference 结构: {"id": ..., "question": ..., "answer": ..., "sql": ...}
-                answer = ref.get("answer", "").strip()
-                if answer and len(answer) > 20:
-                    insights.append(answer)
+                answer = ref.get("answer", "")
+                sql = ref.get("sql", "")
+                if answer:
+                    parts.append(f"SQL result: {answer}")
+                if sql:
+                    parts.append(f"(SQL: {sql})")
 
-        # 方案 B：如果 references 为空，从 markdown 中提取句子
-        if not insights and report.markdown:
-            insights = self._extract_sentences_from_markdown(report.markdown)
+        combined = "\n\n".join(parts)
+        if not combined.strip():
+            return [report.thesis.title]
 
-        return insights if insights else [report.thesis.title]
+        try:
+            insights = self._condense_insights(combined)
+            if insights:
+                return insights
+        except Exception:
+            logger.warning("LLM condensation failed, falling back to sentence extraction")
+
+        return self._extract_sentences_from_markdown(combined) if combined else [report.thesis.title]
+
+    # ── 用 LLM 将叙事报告浓缩为 insight statements ─────────────────────
+
+    _CONDENSE_PROMPT = (
+        "You are extracting data-driven findings from an analytical report. "
+        "Your task is to produce a list of concise, factual insight statements.\n\n"
+        "Rules:\n"
+        "- Each insight must be a SINGLE SHORT SENTENCE (10-25 words).\n"
+        "- State ONLY what the data shows. Do NOT explain, interpret, or recommend.\n"
+        "- Style: \"X is higher than Y\", \"There is a trend of Z over time\", "
+        "\"A and B show no correlation\".\n"
+        "- Use plain language. No rhetorical questions, no narrative transitions.\n"
+        "- Extract 3-8 insights total. Less is better than redundant.\n"
+        "- Include specific categories, metrics, or time frames where the data supports them.\n\n"
+        "Return a JSON object with an \"insights\" array of strings."
+    )
+
+    def _condense_insights(self, markdown: str) -> list[str]:
+        """调用 LLM 将报告 markdown 浓缩为 terse insight statements。"""
+        prompt = self._CONDENSE_PROMPT + "\n\nReport:\n" + markdown[:6000]
+        result = self._llm.generate_json(
+            prompt, temperature=0.3, max_completion_tokens=1024
+        )
+        raw = result.get("insights", [])
+        if isinstance(raw, list):
+            return [s.strip() for s in raw if isinstance(s, str) and len(s.strip()) > 15]
+        return []
 
     def _extract_sentences_from_markdown(self, markdown: str) -> list[str]:
         """从 markdown 正文中提取有意义的句子作为 insights。"""

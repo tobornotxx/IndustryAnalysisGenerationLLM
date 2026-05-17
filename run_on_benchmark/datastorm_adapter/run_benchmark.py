@@ -52,6 +52,8 @@ def parse_args() -> argparse.Namespace:
         description="Run MyDataStorm on InsightBench"
     )
     parser.add_argument("--openai_api_key", default=None)
+    parser.add_argument("--api_base", default=None,
+                        help="OpenAI API base URL（覆盖 llm_config.json 中的值）")
     parser.add_argument("--benchmark_type", default="toy",
                         choices=["toy", "standard", "full"])
     parser.add_argument("--n_datasets", type=int, default=None,
@@ -62,8 +64,6 @@ def parse_args() -> argparse.Namespace:
                         help="结果保存根目录，默认 insight-bench/results/datastorm")
     parser.add_argument("--model_name", default="gpt-5.4-mini")
     parser.add_argument("--max_layers", type=int, default=3)
-    parser.add_argument("--score_name", default="rouge1",
-                        choices=["rouge1", "g_eval"])
     parser.add_argument("--start_from", type=int, default=1,
                         help="从第几个 flag 开始（断点续跑）")
     parser.add_argument("--verbose", action="store_true")
@@ -88,13 +88,31 @@ def main() -> None:
 
     from insightbench import benchmarks
     from datastorm_adapter.adapter import DataStormAdapter
+    from unified_scorer import score_insights as g_eval_insights, score_summary as g_eval_summary, get_scorer_config
 
     # 设置 API key
     if args.openai_api_key:
         os.environ["OPENAI_API_KEY"] = args.openai_api_key
 
+    # 检查 api_key 来源：CLI > 环境变量 > llm_config.json
     if not os.environ.get("OPENAI_API_KEY"):
-        print("ERROR: 需要提供 OpenAI API key（--openai_api_key 或 OPENAI_API_KEY 环境变量）")
+        # 也尝试从 llm_config.json 读取
+        import json as _json
+        from pathlib import Path as _Path
+        _json_path = _Path(__file__).resolve().parents[2] / "MyDataStorm" / "datastorm" / "llm_config.json"
+        try:
+            if _json_path.is_file():
+                _cfg = _json.loads(_json_path.read_text(encoding="utf-8"))
+                if _cfg.get("api_key"):
+                    os.environ["OPENAI_API_KEY"] = _cfg["api_key"]
+        except Exception:
+            pass
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("ERROR: 需要提供 OpenAI API key")
+        print("       方式1: 设置环境变量 OPENAI_API_KEY")
+        print("       方式2: --openai_api_key 参数")
+        print("       方式3: MyDataStorm/datastorm/llm_config.json 中设置 api_key")
         sys.exit(1)
 
     # 加载 benchmark 数据集列表
@@ -114,6 +132,7 @@ def main() -> None:
         model_name=args.model_name,
         max_layers=args.max_layers,
         openai_api_key=args.openai_api_key,
+        api_base=args.api_base,
         verbose=args.verbose,
     )
 
@@ -164,15 +183,13 @@ def main() -> None:
                 return_summary=True,
             )
 
-            score_insights = benchmarks.evaluate_insights(
+            score_insights = g_eval_insights(
                 pred_insights=pred_insights,
                 gt_insights=dataset_dict["insights"],
-                score_name=args.score_name,
             )
-            score_summary = benchmarks.evaluate_summary(
-                pred=pred_summary,
-                gt=dataset_dict.get("summary", ""),
-                score_name=args.score_name,
+            score_summary = g_eval_summary(
+                pred_summary=pred_summary,
+                gt_summary=dataset_dict.get("summary", ""),
             )
 
             result = {
@@ -219,11 +236,13 @@ def main() -> None:
     if ok_results:
         avg_insights = sum(r["score_insights"] for r in ok_results) / len(ok_results)
         avg_summary = sum(r["score_summary"] for r in ok_results) / len(ok_results)
+        scorer_cfg = get_scorer_config()
         print("\n" + "=" * 60)
         print(f"Benchmark: {args.benchmark_type} | Model: {args.model_name}")
+        print(f"Scorer: G-Eval | Judge: {scorer_cfg['model']} | logprobs: {scorer_cfg['logprobs']}")
         print(f"Completed: {len(ok_results)}/{len(dataset_paths)}")
-        print(f"Avg score_insights ({args.score_name}): {avg_insights:.4f}")
-        print(f"Avg score_summary  ({args.score_name}): {avg_summary:.4f}")
+        print(f"Avg score_insights: {avg_insights:.4f}")
+        print(f"Avg score_summary:  {avg_summary:.4f}")
         print(f"Results saved to: {savedir_base.resolve()}")
         print("=" * 60)
     else:

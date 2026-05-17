@@ -78,11 +78,6 @@ def main():
         default="",
         help="[eval_only] 已有的预测结果文件路径",
     )
-    parser.add_argument(
-        "--evaluator",
-        default="Pro/moonshotai/Kimi-K2.5",
-        help="评估器模型名称（默认 Pro/moonshotai/Kimi-K2.5）",
-    )
 
     args = parser.parse_args()
     output_dir = Path(args.output_dir)
@@ -158,7 +153,6 @@ def _run_insightbench(args, output_dir: Path):
         scores = evaluate_insightbench(
             predictions_file=str(predictions_file),
             data_dir=str(data_dir),
-            evaluator_model=args.evaluator,
         )
         scores_file = output_dir / "insightbench_scores.json"
         with open(scores_file, "w", encoding="utf-8") as f:
@@ -249,7 +243,6 @@ def _run_daco(args, output_dir: Path):
         scores = evaluate_daco(
             predictions_file=str(predictions_file),
             ground_truth_file=str(test_file),
-            evaluator_model=args.evaluator,
         )
         scores_file = output_dir / "daco_scores.json"
         with open(scores_file, "w", encoding="utf-8") as f:

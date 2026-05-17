@@ -26,6 +26,7 @@ for _p in [_run_on_bench, _insight_bench]:
 
 from insightbench import benchmarks
 from datastorm_adapter.adapter import DataStormAdapter
+from unified_scorer import score_insights as g_eval_insights, score_summary as g_eval_summary, get_scorer_config
 
 # ── 配置 ──────────────────────────────────────────────────────────────
 _DATA_DIR    = os.path.join(_insight_bench, "data", "notebooks")
@@ -82,18 +83,18 @@ def main() -> None:
     print(pred_summary[:500])
 
     print("\n── Evaluation ──────────────────────────────────────────────")
-    score_insights = benchmarks.evaluate_insights(
+    scorer_cfg = get_scorer_config()
+    print(f"Scorer: G-Eval | Judge: {scorer_cfg['model']} | logprobs: {scorer_cfg['logprobs']}")
+    score_insights = g_eval_insights(
         pred_insights=pred_insights,
         gt_insights=dataset_dict["insights"],
-        score_name="rouge1",
     )
-    score_summary = benchmarks.evaluate_summary(
-        pred=pred_summary,
-        gt=dataset_dict.get("summary", ""),
-        score_name="rouge1",
+    score_summary = g_eval_summary(
+        pred_summary=pred_summary,
+        gt_summary=dataset_dict.get("summary", ""),
     )
-    print(f"score_insights (rouge1): {score_insights:.4f}")
-    print(f"score_summary  (rouge1): {score_summary:.4f}")
+    print(f"score_insights: {score_insights:.4f}")
+    print(f"score_summary:  {score_summary:.4f}")
 
 
 if __name__ == "__main__":
