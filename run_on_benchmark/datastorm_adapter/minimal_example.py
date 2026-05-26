@@ -31,7 +31,7 @@ from unified_scorer import score_insights as g_eval_insights, score_summary as g
 # ── 配置 ──────────────────────────────────────────────────────────────
 _DATA_DIR    = os.path.join(_insight_bench, "data", "notebooks")
 DATASET_JSON = os.path.join(_DATA_DIR, "flag-1.json")
-MODEL_NAME   = "gpt-5.4-mini"
+MODEL_NAME   = None   # None = 使用 llm_config.json 中的配置
 MAX_LAYERS   = 2   # 快速验证用 2 层，正式跑用 3-5
 # ─────────────────────────────────────────────────────────────────────
 

@@ -42,7 +42,7 @@ _CFG = _load_config()
 
 _SCORER_API_KEY = _CFG.get("api_key") or os.getenv("OPENAI_API_KEY", "")
 _SCORER_API_BASE = _CFG.get("api_base") or os.getenv("OPENAI_API_BASE", "")
-_SCORER_MODEL = _CFG.get("model_name", "gpt-5.4-mini")
+_SCORER_MODEL = _CFG.get("model_name", "deepseek-v4-pro")
 _SCORER_TEMPERATURE = float(_CFG.get("temperature", 0.7))
 _SCORER_MAX_TOKENS = int(_CFG.get("max_completion_tokens", 4096))
 

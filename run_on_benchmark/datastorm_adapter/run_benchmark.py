@@ -18,7 +18,7 @@
     --datadir         InsightBench 数据目录，默认 data/notebooks
     --savedir_base    结果保存根目录，默认 results/datastorm
     --openai_api_key  OpenAI API key（也可用环境变量）
-    --model_name      LLM 模型，默认 gpt-4o
+    --model_name      LLM 模型（不指定则使用 llm_config.json 中的配置）
     --max_layers      DataSTORM 探索层数，默认 3
     --score_name      评估指标 rouge1 / g_eval，默认 rouge1
     --start_from      从第几个 flag 开始（断点续跑），默认 1
@@ -61,7 +61,8 @@ def parse_args() -> argparse.Namespace:
                         help="InsightBench 数据目录，默认自动定位到 insight-bench/data/notebooks")
     parser.add_argument("--savedir_base", default=None,
                         help="结果保存根目录，默认 Report Generation/results/datastorm")
-    parser.add_argument("--model_name", default="gpt-5.4-mini")
+    parser.add_argument("--model_name", default=None,
+                        help="LLM 模型名（不指定则使用 llm_config.json 中的配置）")
     parser.add_argument("--max_layers", type=int, default=3)
     parser.add_argument("--start_from", type=int, default=1,
                         help="从第几个 flag 开始（断点续跑）")

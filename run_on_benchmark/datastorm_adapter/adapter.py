@@ -69,16 +69,16 @@ class DataStormAdapter:
     """将 MyDataStorm 包装为 InsightBench 兼容的 Agent。
 
     参数：
-        model_name:      LLM 模型名称（默认 gpt-4o）
+        model_name:      LLM 模型名称（None=使用 llm_config.json 中的配置）
         max_layers:      探索层数（默认 3，比论文的 5 少以节省 token）
-        openai_api_key:  OpenAI API key（也可通过环境变量 OPENAI_API_KEY 设置）
+        openai_api_key:  OpenAI API key（None=使用 llm_config.json 中的配置）
         savedir:         结果保存目录（可选）
         verbose:         是否输出详细日志
     """
 
     def __init__(
         self,
-        model_name: str = "gpt-5.4-mini",
+        model_name: str | None = None,
         max_layers: int = 3,
         openai_api_key: str | None = None,
         api_base: str | None = None,
@@ -95,7 +95,10 @@ class DataStormAdapter:
             logging.basicConfig(level=logging.INFO)
 
         # 构造 LLMConfig：只覆盖显式传入的参数，其余由 llm_config.json + 环境变量提供
-        llm_kwargs: dict = {"exploration_model": model_name, "report_model": model_name}
+        llm_kwargs: dict = {}
+        if model_name:
+            llm_kwargs["exploration_model"] = model_name
+            llm_kwargs["report_model"] = model_name
         if openai_api_key:
             llm_kwargs["api_key"] = openai_api_key
         if api_base:
