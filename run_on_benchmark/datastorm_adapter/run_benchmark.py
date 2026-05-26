@@ -9,8 +9,7 @@
         --savedir results/datastorm \
         --benchmark_type toy
 
-    # 或者设置环境变量后省略 --openai_api_key
-    export OPENAI_API_KEY=sk-...
+    # 或者在 MyDataStorm/datastorm/llm_config.json 中配好 api_key 后直接运行
     python ../datastorm_adapter/run_benchmark.py --benchmark_type standard
 
 参数说明：
@@ -100,7 +99,7 @@ def main() -> None:
         # 也尝试从 llm_config.json 读取
         import json as _json
         from pathlib import Path as _Path
-        _json_path = _Path(__file__).resolve().parents[2] / "MyDataStorm" / "datastorm" / "llm_config.json"
+        _json_path = _Path(__file__).resolve().parents[3] / "MyDataStorm" / "datastorm" / "llm_config.json"
         try:
             if _json_path.is_file():
                 _cfg = _json.loads(_json_path.read_text(encoding="utf-8"))

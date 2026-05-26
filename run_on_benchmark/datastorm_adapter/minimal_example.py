@@ -5,9 +5,9 @@
 用法（任意目录均可）：
     python "D:/DataAgents/Report Generation/run_on_benchmark/datastorm_adapter/minimal_example.py"
 
-需要设置环境变量：
-    set OPENAI_API_KEY=sk-...   (Windows)
-    export OPENAI_API_KEY=sk-... (Linux/Mac)
+API Key 来源（优先级从高到低）：
+    1. 环境变量 OPENAI_API_KEY
+    2. MyDataStorm/datastorm/llm_config.json 中的 api_key
 """
 
 from __future__ import annotations
@@ -41,8 +41,23 @@ def main() -> None:
         print(f"       请确认 insight-bench 目录存在于 {_insight_bench}")
         sys.exit(1)
 
+    # API Key: 环境变量 > llm_config.json
     if not os.environ.get("OPENAI_API_KEY"):
-        print("ERROR: 请设置 OPENAI_API_KEY 环境变量。")
+        import json as _json
+        from pathlib import Path as _Path
+        _json_path = _Path(__file__).resolve().parents[3] / "MyDataStorm" / "datastorm" / "llm_config.json"
+        try:
+            if _json_path.is_file():
+                _cfg = _json.loads(_json_path.read_text(encoding="utf-8"))
+                if _cfg.get("api_key"):
+                    os.environ["OPENAI_API_KEY"] = _cfg["api_key"]
+        except Exception:
+            pass
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("ERROR: 未找到 API Key。")
+        print("       请在 MyDataStorm/datastorm/llm_config.json 中设置 api_key")
+        print("       或设置环境变量 OPENAI_API_KEY")
         sys.exit(1)
 
     print(f"Loading dataset: {DATASET_JSON}")
