@@ -112,13 +112,14 @@ class DataStormAdapter:
             exploration=ExplorationConfig(
                 max_layers=max_layers,
                 first_layer_max_questions=2,
-                subsequent_layer_max_questions=3,
-                executor_max_turns=10,
+                subsequent_layer_max_questions=2,
+                executor_max_turns=5,
             ),
             report=ReportConfig(
                 section_target_words=400,
                 total_target_words=2000,
                 max_web_queries_per_section=0,  # 禁用报告阶段的 web 查询
+                skip_citation_check=True,  # 跳过引用验证，减少 API 请求
             ),
         )
         self._llm = LLMClient(self._base_config.llm)
@@ -300,16 +301,23 @@ class DataStormAdapter:
     # ── 用 LLM 将叙事报告浓缩为 insight statements ─────────────────────
 
     _CONDENSE_PROMPT = (
-        "You are extracting data-driven findings from an analytical report. "
-        "Your task is to produce a list of concise, factual insight statements.\n\n"
+        "You are extracting key analytical findings from a data analysis report. "
+        "Your task is to produce a list of insight statements that describe PATTERNS, "
+        "TRENDS, CORRELATIONS, and ANOMALIES found in the data.\n\n"
         "Rules:\n"
-        "- Each insight must be a SINGLE SHORT SENTENCE (10-25 words).\n"
-        "- State ONLY what the data shows. Do NOT explain, interpret, or recommend.\n"
-        "- Style: \"X is higher than Y\", \"There is a trend of Z over time\", "
-        "\"A and B show no correlation\".\n"
-        "- Use plain language. No rhetorical questions, no narrative transitions.\n"
-        "- Extract 3-8 insights total. Less is better than redundant.\n"
-        "- Include specific categories, metrics, or time frames where the data supports them.\n\n"
+        "- Each insight should describe a qualitative observation about the data "
+        "(e.g., trends over time, comparisons between categories, correlations or lack thereof).\n"
+        "- Focus on WHAT the data reveals at a high level, not raw numbers.\n"
+        "- Good style: \"The volume of X incidents is increasing over time\", "
+        "\"There is no correlation between A and B\", "
+        "\"Category X has significantly higher resolution time than others\", "
+        "\"Performance is uniform across all agents despite volume changes\".\n"
+        "- BAD style: \"The mean is 38.5\" or \"In April 2023 there were 46 incidents\" "
+        "(too specific/quantitative).\n"
+        "- Include actionable observations where the data suggests them "
+        "(e.g., \"Specific hardware issues are predominantly mentioned in incident descriptions\").\n"
+        "- Extract 4-8 insights total. Cover different aspects of the analysis.\n"
+        "- Each insight should be 1-2 sentences.\n\n"
         "Return a JSON object with an \"insights\" array of strings."
     )
 
@@ -345,7 +353,29 @@ class DataStormAdapter:
         return sentences[:20]
 
     def _extract_summary(self, report: FinalReport) -> str:
-        """从 FinalReport 提取 summary 字符串。"""
+        """从 FinalReport 提取 summary 字符串。
+
+        使用 LLM 将完整报告浓缩为一段简短的总结段落，
+        风格与 InsightBench 的 GT summary 对齐。
+        """
+        # 尝试用 LLM 生成高质量 summary
+        if report.markdown and len(report.markdown) > 100:
+            try:
+                prompt = (
+                    "Summarize the following analytical report into a single concise paragraph "
+                    "(100-200 words). Focus on:\n"
+                    "- The main finding or thesis\n"
+                    "- Key patterns and trends discovered\n"
+                    "- Actionable implications or recommendations\n\n"
+                    "Report:\n" + report.markdown[:4000]
+                )
+                summary = self._llm.generate(prompt, temperature=0.3, max_completion_tokens=512)
+                if summary and len(summary) > 50:
+                    return summary
+            except Exception:
+                pass
+
+        # 回退：拼接 thesis 信息
         summary_parts = [report.thesis.title]
         if report.thesis.research_strategy:
             summary_parts.append(report.thesis.research_strategy)

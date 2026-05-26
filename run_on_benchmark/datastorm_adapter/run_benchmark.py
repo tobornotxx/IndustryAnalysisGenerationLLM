@@ -146,7 +146,7 @@ def main() -> None:
             all_scores = json.load(f)
         logger.info("Loaded %d existing results from %s", len(all_scores), summary_path)
 
-    completed_flags = {r["flag"] for r in all_scores}
+    completed_flags = {r["flag"] for r in all_scores if r.get("status") == "ok"}
 
     for dataset_json_path in dataset_paths:
         # 解析 flag id
@@ -227,6 +227,8 @@ def main() -> None:
                 "status": f"error: {e}",
             }
 
+        # 替换同一 flag 的旧记录（如果有），避免重复
+        all_scores = [r for r in all_scores if r.get("flag") != flag_id]
         all_scores.append(result)
 
         # 每条结果后立即保存 summary（防止中途崩溃丢失进度）
