@@ -57,6 +57,8 @@ def parse_args() -> argparse.Namespace:
                         choices=["toy", "standard", "full"])
     parser.add_argument("--n_datasets", type=int, default=None,
                         help="只跑前 N 条数据集，不指定则跑 benchmark_type 对应的全部")
+    parser.add_argument("--only", type=int, default=None,
+                        help="只运行指定的 flag 编号（如 --only 4 只跑 flag-4）")
     parser.add_argument("--datadir", default=None,
                         help="InsightBench 数据目录，默认自动定位到 insight-bench/data/notebooks")
     parser.add_argument("--savedir_base", default=None,
@@ -73,15 +75,43 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
     # 路径解析（不依赖运行目录）
     _report_gen_dir = os.path.dirname(_run_on_bench)  # .../Report Generation
     datadir     = args.datadir     or os.path.join(_insight_bench, "data", "notebooks")
     savedir_base_str = args.savedir_base or os.path.join(_report_gen_dir, "results", "datastorm")
+
+    # 创建保存目录（提前创建，用于放日志文件）
+    savedir_base = Path(savedir_base_str)
+    savedir_base.mkdir(parents=True, exist_ok=True)
+
+    # 配置 logging：同时输出到终端和文件
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    log_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+    # 确定日志文件名
+    if args.only:
+        log_filename = f"run_flag-{args.only}.log"
+    else:
+        log_filename = "run.log"
+    log_path = savedir_base / log_filename
+
+    # 设置 root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)  # 捕获所有级别
+
+    # 终端 handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(logging.Formatter(log_format))
+    root_logger.addHandler(console_handler)
+
+    # 文件 handler (始终 DEBUG 级别，记录所有细节)
+    file_handler = logging.FileHandler(str(log_path), mode="w", encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(log_format))
+    root_logger.addHandler(file_handler)
+
+    logger.info("Log file: %s", log_path)
 
     if not os.path.exists(datadir):
         print(f"ERROR: 数据目录不存在: {datadir}")
@@ -124,10 +154,6 @@ def main() -> None:
         "Benchmark: %s (%d datasets)", args.benchmark_type, len(dataset_paths)
     )
 
-    # 创建保存目录
-    savedir_base = Path(savedir_base_str)
-    savedir_base.mkdir(parents=True, exist_ok=True)
-
     # 初始化适配器（复用同一个实例，避免重复初始化）
     adapter = DataStormAdapter(
         model_name=args.model_name,
@@ -153,9 +179,12 @@ def main() -> None:
         flag_id = Path(dataset_json_path).stem  # e.g. "flag-1"
         flag_num = int(flag_id.split("-")[1])
 
+        # --only: 只运行指定的 flag
+        if args.only is not None and flag_num != args.only:
+            continue
         if flag_num < args.start_from:
             continue
-        if flag_id in completed_flags:
+        if flag_id in completed_flags and args.only is None:
             logger.info("Skipping %s (already completed)", flag_id)
             continue
 
