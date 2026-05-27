@@ -80,6 +80,7 @@ class DataStormAdapter:
         self,
         model_name: str | None = None,
         max_layers: int = 3,
+        questions_per_layer: int = 2,
         openai_api_key: str | None = None,
         api_base: str | None = None,
         savedir: str | None = None,
@@ -87,6 +88,7 @@ class DataStormAdapter:
     ) -> None:
         self.model_name = model_name
         self.max_layers = max_layers
+        self.questions_per_layer = questions_per_layer
         self.savedir = savedir
 
         if verbose:
@@ -111,8 +113,8 @@ class DataStormAdapter:
             internet=InternetConfig(serper_api_key=""),  # 禁用网络搜索
             exploration=ExplorationConfig(
                 max_layers=max_layers,
-                first_layer_max_questions=2,
-                subsequent_layer_max_questions=2,
+                first_layer_max_questions=questions_per_layer,
+                subsequent_layer_max_questions=questions_per_layer,
                 executor_max_turns=5,
             ),
             report=ReportConfig(
