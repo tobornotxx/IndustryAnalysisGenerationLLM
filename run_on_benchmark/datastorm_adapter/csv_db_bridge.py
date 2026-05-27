@@ -201,8 +201,18 @@ class CsvDatabaseBridge:
         try:
             import scipy
             import scipy.stats
+            import scipy.optimize
         except ImportError:
             scipy = None
+        try:
+            import sklearn
+        except ImportError:
+            sklearn = None
+        try:
+            import statsmodels
+            import statsmodels.api
+        except ImportError:
+            statsmodels = None
 
         local_vars: dict[str, Any] = {
             "sql_results": df,
@@ -214,6 +224,11 @@ class CsvDatabaseBridge:
         if scipy is not None:
             local_vars["scipy"] = scipy
             local_vars["stats"] = scipy.stats
+        if sklearn is not None:
+            local_vars["sklearn"] = sklearn
+        if statsmodels is not None:
+            local_vars["statsmodels"] = statsmodels
+            local_vars["sm"] = statsmodels.api
 
         safe_builtins = {
             "print": captured_print,
@@ -234,7 +249,9 @@ class CsvDatabaseBridge:
                 f"Python execution error: {type(e).__name__}: {e}\n\n"
                 f"Traceback:\n{tb}\n\n"
                 f"Available variables: sql_results (DataFrame with {len(df)} rows, columns: {list(df.columns)})\n"
-                f"Available packages: numpy (as np), pandas (as pd), scipy, scipy.stats (as stats)"
+                f"Available packages: numpy (np), pandas (pd), scipy, scipy.stats (stats), "
+                f"sklearn, statsmodels (sm)\n"
+                f"Tip: Fix the error and retry. Check column names match the DataFrame."
             )
 
         return output_buffer.getvalue()
