@@ -73,6 +73,7 @@ class CsvDatabaseBridge:
             f"Main dataset loaded from {os.path.basename(self._csv_path)} "
             f"({len(df)} rows, {len(df.columns)} columns)"
         )
+        self._schema_cache = self._build_schema_text(self._table_name, df)
         logger.info(
             "Loaded CSV '%s' → table '%s' (%d rows)",
             self._csv_path, self._table_name, len(df),
@@ -85,12 +86,30 @@ class CsvDatabaseBridge:
                 f"User dataset loaded from {os.path.basename(self._user_csv_path)} "
                 f"({len(df_user)} rows, {len(df_user.columns)} columns)"
             )
+            self._schema_cache += "\n\n" + self._build_schema_text(self._user_table_name, df_user)
             logger.info(
                 "Loaded user CSV '%s' → table '%s' (%d rows)",
                 self._user_csv_path, self._user_table_name, len(df_user),
             )
 
         self._conn.commit()
+
+    def _build_schema_text(self, table_name: str, df: pd.DataFrame) -> str:
+        """生成可直接注入 prompt 的表结构描述。"""
+        lines = [f"Table: {table_name} ({len(df)} rows)"]
+        lines.append("Columns:")
+        for col in df.columns:
+            dtype = str(df[col].dtype)
+            n_unique = df[col].nunique()
+            n_null = df[col].isnull().sum()
+            sample_vals = df[col].dropna().unique()[:5].tolist()
+            sample_str = ", ".join(repr(v) for v in sample_vals)
+            lines.append(f"  - {col} ({dtype}, {n_unique} unique, {n_null} nulls) — samples: [{sample_str}]")
+        return "\n".join(lines)
+
+    def get_schema_context(self) -> str:
+        """返回完整的数据库 schema 上下文（用于注入 executor prompt）。"""
+        return self._schema_cache
 
     # ------------------------------------------------------------------
     # DatabaseConnector 兼容接口
@@ -177,21 +196,45 @@ class CsvDatabaseBridge:
             kwargs["file"] = output_buffer
             print(*args, **kwargs)
 
+        # 注入常用数据科学包
+        import numpy as np
+        try:
+            import scipy
+            import scipy.stats
+        except ImportError:
+            scipy = None
+
         local_vars: dict[str, Any] = {
             "sql_results": df,
             "pd": pd,
+            "np": np,
+            "numpy": np,
             "print": captured_print,
         }
+        if scipy is not None:
+            local_vars["scipy"] = scipy
+            local_vars["stats"] = scipy.stats
+
         safe_builtins = {
             "print": captured_print,
             "len": len, "range": range, "str": str, "int": int,
             "float": float, "list": list, "dict": dict, "sorted": sorted,
             "min": min, "max": max, "sum": sum, "round": round,
             "abs": abs, "enumerate": enumerate, "zip": zip,
+            "isinstance": isinstance, "type": type, "tuple": tuple,
+            "set": set, "bool": bool, "map": map, "filter": filter,
+            "any": any, "all": all, "reversed": reversed,
         }
         try:
             exec(python_code, {"__builtins__": safe_builtins}, local_vars)
         except Exception as e:
-            return f"Error executing Python code: {e}"
+            import traceback
+            tb = traceback.format_exc()
+            return (
+                f"Python execution error: {type(e).__name__}: {e}\n\n"
+                f"Traceback:\n{tb}\n\n"
+                f"Available variables: sql_results (DataFrame with {len(df)} rows, columns: {list(df.columns)})\n"
+                f"Available packages: numpy (as np), pandas (as pd), scipy, scipy.stats (as stats)"
+            )
 
         return output_buffer.getvalue()

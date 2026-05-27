@@ -163,7 +163,19 @@ class DataStormAdapter:
 
         # 3. 手动组装 pipeline（注入 bridge 替代 PostgreSQL connector）
         config = self._base_config
-        config.db_description = dataset_description
+        # 把完整的 schema 信息注入 db_description，这样：
+        # - Executor 不需要浪费轮次调 get_tables() / retrieve_tables_details()
+        # - Planner 能看到表结构来生成更精准的问题
+        schema_context = bridge.get_schema_context()
+        config.db_description = (
+            f"{dataset_description}\n\n"
+            f"DATABASE SCHEMA (SQLite):\n{schema_context}\n\n"
+            f"AVAILABLE PYTHON PACKAGES for execute_python_from_sql:\n"
+            f"  numpy (as np), pandas (as pd), scipy, scipy.stats (as stats)\n"
+            f"  The sql_results variable is a pandas DataFrame.\n"
+            f"NOTE: You already have the full schema above. "
+            f"Skip get_tables() and retrieve_tables_details() — go directly to execute_sql()."
+        )
 
         pipeline = self._build_pipeline(config, bridge)
 
