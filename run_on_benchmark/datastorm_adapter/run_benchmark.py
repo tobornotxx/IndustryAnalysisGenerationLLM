@@ -68,6 +68,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max_layers", type=int, default=3)
     parser.add_argument("--questions_per_layer", type=int, default=2,
                         help="每层 Planner 生成的问题数（默认 2）")
+    parser.add_argument("--follow_up", type=int, default=None,
+                        help="每层跟进问题数 m（默认等于 questions_per_layer）")
+    parser.add_argument("--exploratory", type=int, default=None,
+                        help="每层探索问题数 n（默认等于 questions_per_layer）")
     parser.add_argument("--start_from", type=int, default=1,
                         help="从第几个 flag 开始（断点续跑）")
     parser.add_argument("--verbose", action="store_true")
@@ -161,6 +165,8 @@ def main() -> None:
         model_name=args.model_name,
         max_layers=args.max_layers,
         questions_per_layer=args.questions_per_layer,
+        follow_up_per_layer=args.follow_up,
+        exploratory_per_layer=args.exploratory,
         openai_api_key=args.openai_api_key,
         api_base=args.api_base,
         verbose=args.verbose,

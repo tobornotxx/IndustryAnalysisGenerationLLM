@@ -81,6 +81,8 @@ class DataStormAdapter:
         model_name: str | None = None,
         max_layers: int = 3,
         questions_per_layer: int = 2,
+        follow_up_per_layer: int | None = None,
+        exploratory_per_layer: int | None = None,
         openai_api_key: str | None = None,
         api_base: str | None = None,
         savedir: str | None = None,
@@ -89,6 +91,8 @@ class DataStormAdapter:
         self.model_name = model_name
         self.max_layers = max_layers
         self.questions_per_layer = questions_per_layer
+        self.follow_up_per_layer = follow_up_per_layer if follow_up_per_layer is not None else questions_per_layer
+        self.exploratory_per_layer = exploratory_per_layer if exploratory_per_layer is not None else questions_per_layer
         self.savedir = savedir
 
         if verbose:
@@ -115,6 +119,8 @@ class DataStormAdapter:
                 max_layers=max_layers,
                 first_layer_max_questions=questions_per_layer,
                 subsequent_layer_max_questions=questions_per_layer,
+                follow_up_questions_per_layer=self.follow_up_per_layer,
+                exploratory_questions_per_layer=self.exploratory_per_layer,
                 executor_max_turns=5,
             ),
             report=ReportConfig(
@@ -184,7 +190,7 @@ class DataStormAdapter:
         pipeline = self._build_pipeline(config, bridge)
 
         try:
-            report: FinalReport = pipeline.run(query)
+            report: FinalReport = pipeline.run(query, output_dir=self.savedir)
         finally:
             bridge.close()
 
