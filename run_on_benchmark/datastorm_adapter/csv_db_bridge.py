@@ -239,6 +239,7 @@ class CsvDatabaseBridge:
             "isinstance": isinstance, "type": type, "tuple": tuple,
             "set": set, "bool": bool, "map": map, "filter": filter,
             "any": any, "all": all, "reversed": reversed,
+            "__import__": __import__,  # Allow import statements (LLM often writes them)
         }
         try:
             exec(python_code, {"__builtins__": safe_builtins}, local_vars)

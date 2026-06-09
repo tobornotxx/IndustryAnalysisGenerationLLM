@@ -377,21 +377,32 @@ class DataStormAdapter:
     def _extract_summary(self, report: FinalReport) -> str:
         """从 FinalReport 提取 summary 字符串。
 
-        使用 LLM 将完整报告浓缩为一段简短的总结段落，
-        风格与 InsightBench 的 GT summary 对齐。
+        使用 LLM 将完整报告浓缩为结构化的编号列表，
+        风格与 InsightBench 的 GT summary 对齐（numbered bullet points）。
         """
         # 尝试用 LLM 生成高质量 summary
         if report.markdown and len(report.markdown) > 100:
             try:
                 prompt = (
-                    "Summarize the following analytical report into a single concise paragraph "
-                    "(100-200 words). Focus on:\n"
-                    "- The main finding or thesis\n"
-                    "- Key patterns and trends discovered\n"
-                    "- Actionable implications or recommendations\n\n"
-                    "Report:\n" + report.markdown[:4000]
+                    "Summarize the following analytical report into a structured numbered list of key findings.\n\n"
+                    "FORMAT REQUIREMENTS (follow exactly):\n"
+                    "- Use numbered points: 1. **Title**: explanation\n"
+                    "- Each point should be 1-3 sentences describing a specific finding or pattern.\n"
+                    "- Include 3-5 numbered points total.\n"
+                    "- Focus on: main patterns discovered, root causes identified, "
+                    "and actionable recommendations/implications.\n"
+                    "- Use bold for the topic of each point.\n"
+                    "- Do NOT write a paragraph. Write a NUMBERED LIST.\n\n"
+                    "EXAMPLE FORMAT:\n"
+                    "1. **Distribution Skew**: The distribution of X is heavily skewed towards category Y, "
+                    "which accounts for 67% of all incidents.\n\n"
+                    "2. **Root Cause**: The primary reason for the skew is due to Z, "
+                    "which has resulted in an influx of Y-related incidents.\n\n"
+                    "3. **Geographic Concentration**: A significant number of Y incidents are "
+                    "concentrated in location W, suggesting localized issues.\n\n"
+                    "Report:\n" + report.markdown[:5000]
                 )
-                summary = self._llm.generate(prompt, temperature=0.3, max_completion_tokens=512)
+                summary = self._llm.generate(prompt, temperature=0.3, max_completion_tokens=1024)
                 if summary and len(summary) > 50:
                     return summary
             except Exception:
