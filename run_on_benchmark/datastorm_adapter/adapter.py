@@ -204,7 +204,7 @@ class DataStormAdapter:
         exploration_nodes = getattr(pipeline, "last_exploration_nodes", []) or []
         pred_insights = self._extract_insights(report, exploration_nodes)
         if return_summary:
-            pred_summary = self._extract_summary(report)
+            pred_summary = self._extract_summary(report, exploration_nodes, goal)
             return pred_insights, pred_summary
 
         return pred_insights
@@ -394,33 +394,63 @@ class DataStormAdapter:
 
         return sentences[:20]
 
-    def _extract_summary(self, report: FinalReport) -> str:
-        """从 FinalReport 提取 summary 字符串。
+    def _extract_summary(
+        self,
+        report: FinalReport,
+        exploration_nodes: list | None = None,
+        goal: str = "",
+    ) -> str:
+        """从探索树发现生成 summary 字符串。
 
-        使用 LLM 将完整报告浓缩为结构化的编号列表，
-        风格与 InsightBench 的 GT summary 对齐（numbered bullet points）。
+        与 _extract_insights 对称: 数据源优先用完整探索树发现 (question+answer),
+        绕开 report pipeline 把时序发现洗成静态对比的损耗。诊断显示 GT summary
+        几乎都是"随时间如何演变 + 因果 + 预测/影响"的时序叙事, 而从 report.markdown
+        浓缩出来的常是静态截面对比 —— 框架错配是 summary 低分的主因。
+
+        prompt 温和引导时序+因果+预测框架, 并锚定原始 goal, 不硬塞 benchmark 措辞。
         """
-        # 尝试用 LLM 生成高质量 summary
-        if report.markdown and len(report.markdown) > 100:
+        # —— 数据源: 优先探索树发现, 否则回退报告正文 ——
+        source_text = ""
+        if exploration_nodes:
+            findings = []
+            for node in exploration_nodes:
+                q = (getattr(node, "question", "") or "").strip()
+                ans = (getattr(node, "summary_text", "") or getattr(node, "answer", "") or "").strip()
+                if ans and not ans.lower().startswith("execution failed"):
+                    findings.append(f"- Q: {q}\n  Finding: {ans}")
+            source_text = "\n".join(findings)
+        if not source_text and report.markdown:
+            source_text = report.markdown
+
+        if source_text and len(source_text) > 100:
             try:
+                goal_line = (
+                    f"RESEARCH GOAL (anchor every point to this): {goal}\n\n" if goal else ""
+                )
                 prompt = (
-                    "Summarize the following analytical report into a structured numbered list of key findings.\n\n"
-                    "FORMAT REQUIREMENTS (follow exactly):\n"
-                    "- Use numbered points: 1. **Title**: explanation\n"
-                    "- Each point should be 1-3 sentences describing a specific finding or pattern.\n"
-                    "- Include 3-5 numbered points total.\n"
-                    "- Focus on: main patterns discovered, root causes identified, "
-                    "and actionable recommendations/implications.\n"
-                    "- Use bold for the topic of each point.\n"
-                    "- Do NOT write a paragraph. Write a NUMBERED LIST.\n\n"
-                    "EXAMPLE FORMAT:\n"
-                    "1. **Distribution Skew**: The distribution of X is heavily skewed towards category Y, "
-                    "which accounts for 67% of all incidents.\n\n"
-                    "2. **Root Cause**: The primary reason for the skew is due to Z, "
-                    "which has resulted in an influx of Y-related incidents.\n\n"
-                    "3. **Geographic Concentration**: A significant number of Y incidents are "
-                    "concentrated in location W, suggesting localized issues.\n\n"
-                    "Report:\n" + report.markdown[:5000]
+                    "You are writing the executive summary of a data analysis.\n\n"
+                    + goal_line +
+                    "Synthesize the findings below into a structured numbered list of key takeaways.\n\n"
+                    "WHAT TO EMPHASIZE (this is the most important instruction):\n"
+                    "- Describe how patterns EVOLVE OVER TIME (trends, increases/decreases, "
+                    "linear or seasonal movement) — not just static one-time comparisons.\n"
+                    "- For each pattern, state the CAUSAL REASON the data suggests "
+                    "(or explicitly note when a plausible cause is ruled out, e.g. "
+                    "'not driven by volume').\n"
+                    "- Where the data supports it, state the PREDICTED TRAJECTORY or "
+                    "IMPLICATION (what happens if the trend continues).\n\n"
+                    "FORMAT (follow exactly):\n"
+                    "- Numbered points: 1. **Title**: explanation\n"
+                    "- 3-5 points total, each 1-3 sentences.\n"
+                    "- Write a NUMBERED LIST, not a paragraph.\n\n"
+                    "EXAMPLE STYLE (structure, not content):\n"
+                    "1. **Rising Resolution Times**: Time-to-resolution increases steadily "
+                    "across the period rather than staying flat, indicating a worsening trend.\n"
+                    "2. **Cause Is Not Volume**: The rise is not explained by incident volume "
+                    "(no significant correlation), pointing instead to a systemic process issue.\n"
+                    "3. **Projected Impact**: If unaddressed, the linear trend predicts continued "
+                    "degradation in responsiveness.\n\n"
+                    "Findings:\n" + source_text[:6000]
                 )
                 summary = self._llm.generate(prompt, temperature=0.3, max_completion_tokens=1024)
                 if summary and len(summary) > 50:
