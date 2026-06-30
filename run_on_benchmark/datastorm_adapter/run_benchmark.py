@@ -74,8 +74,136 @@ def parse_args() -> argparse.Namespace:
                         help="每层探索问题数 n（默认等于 questions_per_layer）")
     parser.add_argument("--start_from", type=int, default=1,
                         help="从第几个 flag 开始（断点续跑）")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="并行 worker 数 N：同时最多跑 N 个 flag，完成一个补一个（进程隔离，"
+                             "每个 flag 写各自的 flag-N/run.log）。默认 1（串行）")
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
+
+
+def _run_and_score_flag(adapter, dataset_json_path: str, savedir: Path) -> dict:
+    """对单个 flag 运行 agent + 评分 + 写 result.json，返回结果 dict。
+
+    串行路径和并行 worker 共用这个核心逻辑，避免两条路径分叉。
+    """
+    from insightbench import benchmarks
+    from unified_scorer import (
+        score_insights as g_eval_insights,
+        score_summary as g_eval_summary,
+        get_scorer_config,
+    )
+
+    flag_id = Path(dataset_json_path).stem
+    dataset_dict = benchmarks.load_dataset_dict(dataset_json_path)
+    metadata = dataset_dict.get("metadata", {})
+
+    savedir.mkdir(parents=True, exist_ok=True)
+    adapter.savedir = str(savedir)
+
+    # JSON 里的 csv 路径相对于 insight-bench 目录，转绝对路径
+    csv_path = os.path.join(_insight_bench, dataset_dict["dataset_csv_path"])
+    user_csv = dataset_dict.get("user_dataset_csv_path")
+    if user_csv:
+        user_csv = os.path.join(_insight_bench, user_csv)
+
+    pred_insights, pred_summary = adapter.get_insights(
+        dataset_csv_path=csv_path,
+        user_dataset_csv_path=user_csv,
+        goal=metadata.get("goal", "Find interesting trends in this dataset"),
+        dataset_description=metadata.get("dataset_description", ""),
+        return_summary=True,
+    )
+
+    score_insights = g_eval_insights(
+        pred_insights=pred_insights,
+        gt_insights=dataset_dict["insights"],
+    )
+    score_summary = g_eval_summary(
+        pred_summary=pred_summary,
+        gt_summary=dataset_dict.get("summary", ""),
+    )
+
+    result = {
+        "flag": flag_id,
+        "score_insights": float(score_insights),
+        "score_summary": float(score_summary),
+        "n_pred_insights": len(pred_insights),
+        "n_gt_insights": len(dataset_dict["insights"]),
+        "pred_summary": pred_summary[:300],
+        "scorer": get_scorer_config(),
+        "status": "ok",
+    }
+
+    with open(savedir / "result.json", "w") as f:
+        json.dump({
+            **result,
+            "pred_insights": pred_insights,
+            "gt_insights": dataset_dict["insights"],
+        }, f, indent=2, ensure_ascii=False)
+
+    logger.info(
+        "%s → score_insights=%.4f, score_summary=%.4f",
+        flag_id, score_insights, score_summary,
+    )
+    return result
+
+
+def _worker_process_flag(task: dict) -> dict:
+    """并行 worker（在独立子进程中运行单个 flag）。
+
+    进程隔离保证：每个 flag 有独立的 config / savedir / adapter / 日志，
+    互不干扰。日志写入各自的 savedir/flag-N/run.log。
+    必须是模块级函数才能被 ProcessPoolExecutor pickle。
+    """
+    # 子进程继承父进程 env；保险起见再设一次 API key
+    if task.get("api_key"):
+        os.environ["OPENAI_API_KEY"] = task["api_key"]
+
+    flag_id = task["flag_id"]
+    savedir = Path(task["savedir_base"]) / flag_id
+    savedir.mkdir(parents=True, exist_ok=True)
+
+    # —— 该子进程的独立日志：写入 flag-N/run.log（全量 DEBUG） ——
+    root_logger = logging.getLogger()
+    for h in list(root_logger.handlers):
+        root_logger.removeHandler(h)
+    root_logger.setLevel(logging.DEBUG)
+    log_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    fh = logging.FileHandler(str(savedir / "run.log"), mode="w", encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter(log_format))
+    root_logger.addHandler(fh)
+    # 控制台也输出（带 flag 前缀，便于在交错的终端里区分）
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG if task.get("verbose") else logging.INFO)
+    ch.setFormatter(logging.Formatter(f"[{flag_id}] {log_format}"))
+    root_logger.addHandler(ch)
+
+    logger.info("=" * 60)
+    logger.info("Processing %s (%s) [worker pid=%d]", flag_id, task["dataset_json_path"], os.getpid())
+
+    try:
+        from datastorm_adapter.adapter import DataStormAdapter
+        adapter = DataStormAdapter(
+            model_name=task["model_name"],
+            max_layers=task["max_layers"],
+            questions_per_layer=task["questions_per_layer"],
+            follow_up_per_layer=task["follow_up"],
+            exploratory_per_layer=task["exploratory"],
+            openai_api_key=task.get("api_key"),
+            api_base=task.get("api_base"),
+            verbose=task.get("verbose", False),
+        )
+        return _run_and_score_flag(adapter, task["dataset_json_path"], savedir)
+    except Exception as e:
+        logger.error("Failed on %s: %s", flag_id, e)
+        traceback.print_exc()
+        return {
+            "flag": flag_id,
+            "score_insights": 0.0,
+            "score_summary": 0.0,
+            "status": f"error: {e}",
+        }
 
 
 def main() -> None:
@@ -160,18 +288,6 @@ def main() -> None:
         "Benchmark: %s (%d datasets)", args.benchmark_type, len(dataset_paths)
     )
 
-    # 初始化适配器（复用同一个实例，避免重复初始化）
-    adapter = DataStormAdapter(
-        model_name=args.model_name,
-        max_layers=args.max_layers,
-        questions_per_layer=args.questions_per_layer,
-        follow_up_per_layer=args.follow_up,
-        exploratory_per_layer=args.exploratory,
-        openai_api_key=args.openai_api_key,
-        api_base=args.api_base,
-        verbose=args.verbose,
-    )
-
     all_scores: list[dict] = []
     summary_path = savedir_base / "summary.json"
 
@@ -183,12 +299,11 @@ def main() -> None:
 
     completed_flags = {r["flag"] for r in all_scores if r.get("status") == "ok"}
 
+    # ── 构建待跑 flag 列表（应用 --only / --start_from / 断点续跑过滤）──
+    pending: list[str] = []
     for dataset_json_path in dataset_paths:
-        # 解析 flag id
         flag_id = Path(dataset_json_path).stem  # e.g. "flag-1"
         flag_num = int(flag_id.split("-")[1])
-
-        # --only: 只运行指定的 flag
         if args.only is not None and flag_num != args.only:
             continue
         if flag_num < args.start_from:
@@ -196,82 +311,90 @@ def main() -> None:
         if flag_id in completed_flags and args.only is None:
             logger.info("Skipping %s (already completed)", flag_id)
             continue
+        pending.append(dataset_json_path)
 
-        logger.info("=" * 60)
-        logger.info("Processing %s (%s)", flag_id, dataset_json_path)
-
-        dataset_dict = benchmarks.load_dataset_dict(dataset_json_path)
-        metadata = dataset_dict.get("metadata", {})
-
-        savedir = savedir_base / flag_id
-        savedir.mkdir(parents=True, exist_ok=True)
-        adapter.savedir = str(savedir)
-
-        # JSON 里的 csv 路径是相对于 insight-bench 目录的，转成绝对路径
-        csv_path = os.path.join(_insight_bench, dataset_dict["dataset_csv_path"])
-        user_csv = dataset_dict.get("user_dataset_csv_path")
-        if user_csv:
-            user_csv = os.path.join(_insight_bench, user_csv)
-
-        try:
-            pred_insights, pred_summary = adapter.get_insights(
-                dataset_csv_path=csv_path,
-                user_dataset_csv_path=user_csv,
-                goal=metadata.get("goal", "Find interesting trends in this dataset"),
-                dataset_description=metadata.get("dataset_description", ""),
-                return_summary=True,
-            )
-
-            score_insights = g_eval_insights(
-                pred_insights=pred_insights,
-                gt_insights=dataset_dict["insights"],
-            )
-            score_summary = g_eval_summary(
-                pred_summary=pred_summary,
-                gt_summary=dataset_dict.get("summary", ""),
-            )
-
-            result = {
-                "flag": flag_id,
-                "score_insights": float(score_insights),
-                "score_summary": float(score_summary),
-                "n_pred_insights": len(pred_insights),
-                "n_gt_insights": len(dataset_dict["insights"]),
-                "pred_summary": pred_summary[:300],
-                "scorer": get_scorer_config(),
-                "status": "ok",
-            }
-
-            # 保存单条结果
-            with open(savedir / "result.json", "w") as f:
-                json.dump({
-                    **result,
-                    "pred_insights": pred_insights,
-                    "gt_insights": dataset_dict["insights"],
-                }, f, indent=2, ensure_ascii=False)
-
-            logger.info(
-                "%s → score_insights=%.4f, score_summary=%.4f",
-                flag_id, score_insights, score_summary,
-            )
-
-        except Exception as e:
-            logger.error("Failed on %s: %s", flag_id, e)
-            traceback.print_exc()
-            result = {
-                "flag": flag_id,
-                "score_insights": 0.0,
-                "score_summary": 0.0,
-                "status": f"error: {e}",
-            }
-
-        # 替换同一 flag 的旧记录（如果有），避免重复
-        all_scores = [r for r in all_scores if r.get("flag") != flag_id]
+    def _record(result: dict) -> None:
+        """合并单条结果到 all_scores 并立即落盘（防崩溃丢进度）。"""
+        nonlocal all_scores
+        all_scores = [r for r in all_scores if r.get("flag") != result.get("flag")]
         all_scores.append(result)
-
-        # 每条结果后立即保存 summary（防止中途崩溃丢失进度）
         with open(summary_path, "w") as f:
             json.dump(all_scores, f, indent=2, ensure_ascii=False)
+
+    workers = max(1, args.workers)
+
+    if workers == 1:
+        # —— 串行路径：复用同一个 adapter 实例（与历史行为一致）——
+        adapter = DataStormAdapter(
+            model_name=args.model_name,
+            max_layers=args.max_layers,
+            questions_per_layer=args.questions_per_layer,
+            follow_up_per_layer=args.follow_up,
+            exploratory_per_layer=args.exploratory,
+            openai_api_key=args.openai_api_key,
+            api_base=args.api_base,
+            verbose=args.verbose,
+        )
+        for dataset_json_path in pending:
+            flag_id = Path(dataset_json_path).stem
+            logger.info("=" * 60)
+            logger.info("Processing %s (%s)", flag_id, dataset_json_path)
+            try:
+                result = _run_and_score_flag(
+                    adapter, dataset_json_path, savedir_base / flag_id
+                )
+            except Exception as e:
+                logger.error("Failed on %s: %s", flag_id, e)
+                traceback.print_exc()
+                result = {
+                    "flag": flag_id, "score_insights": 0.0,
+                    "score_summary": 0.0, "status": f"error: {e}",
+                }
+            _record(result)
+    else:
+        # —— 并行路径：进程池，最多同时 N 个，完成一个补一个 ——
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        api_key = os.environ.get("OPENAI_API_KEY")
+        tasks = [
+            {
+                "flag_id": Path(p).stem,
+                "dataset_json_path": p,
+                "savedir_base": str(savedir_base),
+                "model_name": args.model_name,
+                "max_layers": args.max_layers,
+                "questions_per_layer": args.questions_per_layer,
+                "follow_up": args.follow_up,
+                "exploratory": args.exploratory,
+                "api_key": api_key,
+                "api_base": args.api_base,
+                "verbose": args.verbose,
+            }
+            for p in pending
+        ]
+        logger.info(
+            "Parallel mode: %d flags across %d workers "
+            "(per-flag logs at <savedir>/flag-N/run.log)",
+            len(tasks), workers,
+        )
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            future_to_flag = {
+                pool.submit(_worker_process_flag, t): t["flag_id"] for t in tasks
+            }
+            for future in as_completed(future_to_flag):
+                flag_id = future_to_flag[future]
+                try:
+                    result = future.result()
+                except Exception as e:
+                    logger.error("Worker for %s crashed: %s", flag_id, e)
+                    result = {
+                        "flag": flag_id, "score_insights": 0.0,
+                        "score_summary": 0.0, "status": f"error: {e}",
+                    }
+                _record(result)
+                done = len([r for r in all_scores if r.get("flag") in {t["flag_id"] for t in tasks}])
+                logger.info("Progress: %d/%d flags done (just finished %s)",
+                            done, len(tasks), flag_id)
 
     # 打印汇总统计
     ok_results = [r for r in all_scores if r.get("status") == "ok"]
