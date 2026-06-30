@@ -87,6 +87,7 @@ class DataStormAdapter:
         api_base: str | None = None,
         savedir: str | None = None,
         verbose: bool = False,
+        summary_samples: int = 3,
     ) -> None:
         self.model_name = model_name
         self.max_layers = max_layers
@@ -94,6 +95,8 @@ class DataStormAdapter:
         self.follow_up_per_layer = follow_up_per_layer if follow_up_per_layer is not None else questions_per_layer
         self.exploratory_per_layer = exploratory_per_layer if exploratory_per_layer is not None else questions_per_layer
         self.savedir = savedir
+        # 思路4: summary 自一致性的草稿份数 (1 = 关闭, 退化为单次生成)
+        self._summary_samples = summary_samples
 
         if verbose:
             logging.basicConfig(level=logging.DEBUG)
@@ -446,7 +449,7 @@ class DataStormAdapter:
                     "- Each point 1-3 sentences, grounded in the findings.\n\n"
                     "Findings:\n" + source_text[:6000]
                 )
-                summary = self._llm.generate(prompt, temperature=0.3, max_completion_tokens=1024)
+                summary = self._summarize_self_consistent(prompt)
                 if summary and len(summary) > 50:
                     return summary
             except Exception:
@@ -459,3 +462,54 @@ class DataStormAdapter:
         if report.subtitle:
             summary_parts.append(report.subtitle)
         return " ".join(summary_parts)
+
+    def _summarize_self_consistent(self, prompt: str) -> str:
+        """自一致性提取 (思路4): 同一份发现生成 K 份草稿, 合并出稳定核心。
+
+        探索树只跑一次 (不增加探索成本)。提取是 tree→文本唯一的随机 LLM 环节
+        (temperature>0), 单次输出方差大。这里生成 K 份独立草稿, 再用一次合并调用
+        保留"在多数草稿中反复出现"的论点、剔除只出现一次的偶然噪声 —— 降低
+        单个 case 的运行间方差, 而不依赖重复跑整个 pipeline。
+
+        K=1 时退化为单次生成 (无额外成本)。
+        """
+        k = max(1, int(self._summary_samples))
+        if k == 1:
+            return self._llm.generate(prompt, temperature=0.3, max_completion_tokens=1024)
+
+        drafts: list[str] = []
+        for _ in range(k):
+            try:
+                d = self._llm.generate(prompt, temperature=0.5, max_completion_tokens=1024)
+                if d and len(d.strip()) > 30:
+                    drafts.append(d.strip())
+            except Exception:
+                continue
+
+        if not drafts:
+            return ""
+        if len(drafts) == 1:
+            return drafts[0]
+
+        # —— 合并: 保留跨草稿一致复现的论点 ——
+        joined = "\n\n".join(f"=== DRAFT {i+1} ===\n{d}" for i, d in enumerate(drafts))
+        merge_prompt = (
+            "Below are several independently written summaries of the SAME data analysis.\n\n"
+            f"{joined}\n\n"
+            "Produce ONE consolidated summary that keeps ONLY the points that appear "
+            "CONSISTENTLY across multiple drafts (these are the reliable findings) and "
+            "drops points that appear in just one draft (likely noise or hallucination). "
+            "Preserve the concrete numbers/patterns the consistent points cite. "
+            "Do not introduce any claim not present in the drafts.\n\n"
+            "FORMAT:\n"
+            "- A numbered list of 3-5 key points: 1. **Title**: explanation.\n"
+            "- Each point 1-3 sentences."
+        )
+        try:
+            merged = self._llm.generate(merge_prompt, temperature=0.2, max_completion_tokens=1024)
+            if merged and len(merged.strip()) > 50:
+                return merged.strip()
+        except Exception:
+            pass
+        # 合并失败则退回最长的那份草稿 (信息量通常最大)
+        return max(drafts, key=len)

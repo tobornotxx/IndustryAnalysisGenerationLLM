@@ -77,6 +77,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=1,
                         help="并行 worker 数 N：同时最多跑 N 个 flag，完成一个补一个（进程隔离，"
                              "每个 flag 写各自的 flag-N/run.log）。默认 1（串行）")
+    parser.add_argument("--summary_samples", type=int, default=3,
+                        help="summary 自一致性草稿份数：>1 时生成多份草稿再合并出稳定核心，"
+                             "降低 summary 的运行间方差。1 = 关闭（单次生成）。默认 3")
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
 
@@ -193,6 +196,7 @@ def _worker_process_flag(task: dict) -> dict:
             openai_api_key=task.get("api_key"),
             api_base=task.get("api_base"),
             verbose=task.get("verbose", False),
+            summary_samples=task.get("summary_samples", 3),
         )
         return _run_and_score_flag(adapter, task["dataset_json_path"], savedir)
     except Exception as e:
@@ -334,6 +338,7 @@ def main() -> None:
             openai_api_key=args.openai_api_key,
             api_base=args.api_base,
             verbose=args.verbose,
+            summary_samples=args.summary_samples,
         )
         for dataset_json_path in pending:
             flag_id = Path(dataset_json_path).stem
@@ -369,6 +374,7 @@ def main() -> None:
                 "api_key": api_key,
                 "api_base": args.api_base,
                 "verbose": args.verbose,
+                "summary_samples": args.summary_samples,
             }
             for p in pending
         ]
