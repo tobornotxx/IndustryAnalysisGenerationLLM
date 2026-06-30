@@ -187,7 +187,14 @@ class CsvDatabaseBridge:
         return df, summary
 
     def execute_python_from_sql(self, sql: str, python_code: str) -> str:
-        """基于 SQL 结果执行 Python 代码（对应 Executor action: execute_python_from_sql）。"""
+        """基于 SQL 结果执行 Python 代码（对应 Executor action: execute_python_from_sql）。
+
+        沙箱策略: 大胆放开。提供完整的 Python builtins, 预注入所有 prompt 中
+        承诺的数据科学包 (numpy/pandas/scipy/sklearn/statsmodels/sympy/networkx/
+        xgboost/lightgbm/polars/duckdb/lifelines/pingouin/ruptures/...),
+        以及常用标准库模块 (re/collections/math/datetime/itertools/json/...)。
+        LLM 写的任意 import 也照常放行。
+        """
         df, _ = self.execute_sql(sql, max_rows=10000)
 
         output_buffer = io.StringIO()
@@ -196,53 +203,54 @@ class CsvDatabaseBridge:
             kwargs["file"] = output_buffer
             print(*args, **kwargs)
 
-        # 注入常用数据科学包
-        import numpy as np
-        try:
-            import scipy
-            import scipy.stats
-            import scipy.optimize
-        except ImportError:
-            scipy = None
-        try:
-            import sklearn
-        except ImportError:
-            sklearn = None
-        try:
-            import statsmodels
-            import statsmodels.api
-        except ImportError:
-            statsmodels = None
-
+        # 基础变量: SQL 结果 DataFrame
         local_vars: dict[str, Any] = {
             "sql_results": df,
-            "pd": pd,
-            "np": np,
-            "numpy": np,
             "print": captured_print,
         }
-        if scipy is not None:
-            local_vars["scipy"] = scipy
-            local_vars["stats"] = scipy.stats
-        if sklearn is not None:
-            local_vars["sklearn"] = sklearn
-        if statsmodels is not None:
-            local_vars["statsmodels"] = statsmodels
-            local_vars["sm"] = statsmodels.api
 
-        safe_builtins = {
-            "print": captured_print,
-            "len": len, "range": range, "str": str, "int": int,
-            "float": float, "list": list, "dict": dict, "sorted": sorted,
-            "min": min, "max": max, "sum": sum, "round": round,
-            "abs": abs, "enumerate": enumerate, "zip": zip,
-            "isinstance": isinstance, "type": type, "tuple": tuple,
-            "set": set, "bool": bool, "map": map, "filter": filter,
-            "any": any, "all": all, "reversed": reversed,
-            "__import__": __import__,  # Allow import statements (LLM often writes them)
-        }
+        # —— 预注入常用标准库 (LLM 经常直接引用而不 import) ——
+        import re as _re, math, json as _json, itertools, datetime, collections, statistics
+        from collections import Counter, defaultdict, OrderedDict
+        local_vars.update({
+            "re": _re, "math": math, "json": _json, "itertools": itertools,
+            "datetime": datetime, "collections": collections, "statistics": statistics,
+            "Counter": Counter, "defaultdict": defaultdict, "OrderedDict": OrderedDict,
+        })
+
+        # —— 预注入数据科学包 (与 executor prompt 中承诺的列表对齐) ——
+        # 别名 → 模块名 (含子模块的用 attr 路径)
+        def _try(alias: str, import_fn):
+            try:
+                local_vars[alias] = import_fn()
+            except Exception:
+                pass
+
+        _try("np", lambda: __import__("numpy"))
+        _try("numpy", lambda: __import__("numpy"))
+        local_vars.setdefault("pd", pd)
+        local_vars.setdefault("pandas", pd)
+        _try("scipy", lambda: __import__("scipy"))
+        _try("stats", lambda: __import__("scipy.stats", fromlist=["stats"]))
+        _try("optimize", lambda: __import__("scipy.optimize", fromlist=["optimize"]))
+        _try("sklearn", lambda: __import__("sklearn"))
+        _try("statsmodels", lambda: __import__("statsmodels"))
+        _try("sm", lambda: __import__("statsmodels.api", fromlist=["api"]))
+        _try("smf", lambda: __import__("statsmodels.formula.api", fromlist=["api"]))
+        for name in (
+            "sympy", "networkx", "xgboost", "lightgbm", "polars", "duckdb",
+            "lifelines", "pingouin", "ruptures", "category_encoders", "imblearn",
+            "matplotlib", "seaborn",
+        ):
+            _try(name, lambda n=name: __import__(n))
+
+        # —— 大胆放开: 完整 builtins ——
+        import builtins as _builtins
+        full_builtins = dict(vars(_builtins))
+        full_builtins["print"] = captured_print  # 重定向 print 到捕获缓冲
+
         try:
-            exec(python_code, {"__builtins__": safe_builtins}, local_vars)
+            exec(python_code, {"__builtins__": full_builtins}, local_vars)
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
@@ -250,9 +258,15 @@ class CsvDatabaseBridge:
                 f"Python execution error: {type(e).__name__}: {e}\n\n"
                 f"Traceback:\n{tb}\n\n"
                 f"Available variables: sql_results (DataFrame with {len(df)} rows, columns: {list(df.columns)})\n"
-                f"Available packages: numpy (np), pandas (pd), scipy, scipy.stats (stats), "
-                f"sklearn, statsmodels (sm)\n"
+                f"Pre-loaded: pd, np, scipy, stats, sklearn, statsmodels (sm), re, math, "
+                f"Counter, collections, datetime, itertools, json — plus any package you import.\n"
                 f"Tip: Fix the error and retry. Check column names match the DataFrame."
             )
 
-        return output_buffer.getvalue()
+        out = output_buffer.getvalue()
+        if not out.strip():
+            return (
+                "(Python executed successfully but produced no output. "
+                "Remember to print() the results you want to observe.)"
+            )
+        return out

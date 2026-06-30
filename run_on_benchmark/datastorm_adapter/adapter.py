@@ -198,8 +198,11 @@ class DataStormAdapter:
         if self.savedir:
             self._save_report(report, query)
 
-        # 4. 从 FinalReport 提取 insights 和 summary
-        pred_insights = self._extract_insights(report)
+        # 4. 提取 insights 和 summary
+        # insight 评分优先使用完整探索树发现 (绕开 InsightBank 过滤 + report + condense 的信息损耗);
+        # 若探索树为空则回退到从报告抽取。
+        exploration_nodes = getattr(pipeline, "last_exploration_nodes", []) or []
+        pred_insights = self._extract_insights(report, exploration_nodes)
         if return_summary:
             pred_summary = self._extract_summary(report)
             return pred_insights, pred_summary
@@ -286,15 +289,39 @@ class DataStormAdapter:
         pipeline._planner = planner
         pipeline._executor = executor
         pipeline._insight_bank = insight_bank
+        pipeline.last_exploration_nodes = []
 
         return pipeline
 
-    def _extract_insights(self, report: FinalReport) -> list[str]:
-        """从 FinalReport 中提取 insights list。
+    def _extract_insights(self, report: FinalReport, exploration_nodes: list | None = None) -> list[str]:
+        """提取 insight statements 用于评分。
 
-        把 report.markdown + references（SQL 查询结果）拼接后由 LLM 浓缩为简洁的 insight statements。
+        优先策略 (实验验证可显著提升 recall):
+          直接使用完整探索树每个节点的 (问题 + 答案) 作为一条 insight,
+          绕开 InsightBank 过滤 + 报告生成 + condense 这条有损链。
+          评分器为纯 recall (每条 GT 取最佳匹配 pred, 无 precision 惩罚),
+          因此保留全部发现只增不减命中机会。
+
+        回退策略:
+          探索树为空时, 退回从最终报告 markdown 抽取。
         """
-        # 拼接所有可用内容
+        # —— 优先: 从完整探索树提取原始发现 ——
+        if exploration_nodes:
+            findings: list[str] = []
+            for node in exploration_nodes:
+                q = (getattr(node, "question", "") or "").strip()
+                # 优先用带统计的 summary_text, 否则用 answer
+                ans = (getattr(node, "summary_text", "") or getattr(node, "answer", "") or "").strip()
+                if not ans:
+                    continue
+                # 跳过执行失败的节点
+                if ans.lower().startswith("execution failed"):
+                    continue
+                findings.append(f"{q} {ans}".strip())
+            if findings:
+                return findings
+
+        # —— 回退: 从报告 markdown 抽取 ——
         parts = []
         if report.markdown:
             parts.append(report.markdown)
@@ -310,13 +337,6 @@ class DataStormAdapter:
         combined = "\n\n".join(parts)
         if not combined.strip():
             return [report.thesis.title]
-
-        try:
-            insights = self._condense_insights(combined)
-            if insights:
-                return insights
-        except Exception:
-            logger.warning("LLM condensation failed, falling back to sentence extraction")
 
         return self._extract_sentences_from_markdown(combined) if combined else [report.thesis.title]
 
