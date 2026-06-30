@@ -240,9 +240,20 @@ class CsvDatabaseBridge:
         for name in (
             "sympy", "networkx", "xgboost", "lightgbm", "polars", "duckdb",
             "lifelines", "pingouin", "ruptures", "category_encoders", "imblearn",
-            "matplotlib", "seaborn",
         ):
             _try(name, lambda n=name: __import__(n))
+
+        # —— matplotlib: 强制无界面后端 Agg（必须在 import pyplot / seaborn 之前）——
+        # 默认 GUI 后端在子进程/非主线程中绘图会告警甚至挂起。
+        def _load_matplotlib():
+            import matplotlib
+            matplotlib.use("Agg", force=True)
+            import matplotlib.pyplot as _plt
+            local_vars["plt"] = _plt
+            return matplotlib
+        _try("matplotlib", _load_matplotlib)
+        # seaborn 在 matplotlib 后端锁定为 Agg 之后再导入
+        _try("seaborn", lambda: __import__("seaborn"))
 
         # —— 大胆放开: 完整 builtins ——
         import builtins as _builtins
