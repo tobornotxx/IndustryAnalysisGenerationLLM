@@ -398,7 +398,13 @@ def main() -> None:
 
     # 打印汇总统计
     ok_results = [r for r in all_scores if r.get("status") == "ok"]
-    scorer_cfg = get_scorer_config()
+    # scorer 配置：并行模式下打分发生在子进程，父进程的 get_scorer_config()
+    # 全局未初始化（会误报 logprobs=None/MC）。优先采用已完成结果里子进程
+    # 实际记录的 scorer 配置，确保 run_info 反映真实打分方式。
+    scorer_cfg = next(
+        (r["scorer"] for r in ok_results if r.get("scorer")),
+        get_scorer_config(),
+    )
     run_info = {
         "benchmark_type": args.benchmark_type,
         "model_name": args.model_name,

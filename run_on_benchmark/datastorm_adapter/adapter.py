@@ -400,14 +400,14 @@ class DataStormAdapter:
         exploration_nodes: list | None = None,
         goal: str = "",
     ) -> str:
-        """从探索树发现生成 summary 字符串。
+        """基于所有探索发现，写一段对 goal 的有论据支撑的解释。
 
-        与 _extract_insights 对称: 数据源优先用完整探索树发现 (question+answer),
-        绕开 report pipeline 把时序发现洗成静态对比的损耗。诊断显示 GT summary
-        几乎都是"随时间如何演变 + 因果 + 预测/影响"的时序叙事, 而从 report.markdown
-        浓缩出来的常是静态截面对比 —— 框架错配是 summary 低分的主因。
+        与 _extract_insights 对称: 数据源用完整探索树发现 (question+answer),
+        绕开 report pipeline 的损耗。
 
-        prompt 温和引导时序+因果+预测框架, 并锚定原始 goal, 不硬塞 benchmark 措辞。
+        设计原则: 不预设 summary 该是什么框架 (时序/分布/相关等) —— 那样会按
+        benchmark 答案反向规定结构, 属于过拟合。这里只要求 LLM 基于已有发现,
+        围绕 goal 组织出一个有逻辑、有论据支撑的解释, 论点必须来自发现本身。
         """
         # —— 数据源: 优先探索树发现, 否则回退报告正文 ——
         source_text = ""
@@ -424,32 +424,26 @@ class DataStormAdapter:
 
         if source_text and len(source_text) > 100:
             try:
-                goal_line = (
-                    f"RESEARCH GOAL (anchor every point to this): {goal}\n\n" if goal else ""
-                )
+                goal_line = f"RESEARCH GOAL: {goal}\n\n" if goal else ""
                 prompt = (
-                    "You are writing the executive summary of a data analysis.\n\n"
+                    "You are writing the summary of a data analysis. Below are the "
+                    "findings produced while investigating the research goal.\n\n"
                     + goal_line +
-                    "Synthesize the findings below into a structured numbered list of key takeaways.\n\n"
-                    "WHAT TO EMPHASIZE (this is the most important instruction):\n"
-                    "- Describe how patterns EVOLVE OVER TIME (trends, increases/decreases, "
-                    "linear or seasonal movement) — not just static one-time comparisons.\n"
-                    "- For each pattern, state the CAUSAL REASON the data suggests "
-                    "(or explicitly note when a plausible cause is ruled out, e.g. "
-                    "'not driven by volume').\n"
-                    "- Where the data supports it, state the PREDICTED TRAJECTORY or "
-                    "IMPLICATION (what happens if the trend continues).\n\n"
-                    "FORMAT (follow exactly):\n"
-                    "- Numbered points: 1. **Title**: explanation\n"
-                    "- 3-5 points total, each 1-3 sentences.\n"
-                    "- Write a NUMBERED LIST, not a paragraph.\n\n"
-                    "EXAMPLE STYLE (structure, not content):\n"
-                    "1. **Rising Resolution Times**: Time-to-resolution increases steadily "
-                    "across the period rather than staying flat, indicating a worsening trend.\n"
-                    "2. **Cause Is Not Volume**: The rise is not explained by incident volume "
-                    "(no significant correlation), pointing instead to a systemic process issue.\n"
-                    "3. **Projected Impact**: If unaddressed, the linear trend predicts continued "
-                    "degradation in responsiveness.\n\n"
+                    "Write a coherent summary that ANSWERS the research goal, built "
+                    "entirely from these findings.\n\n"
+                    "Principles:\n"
+                    "- Every claim must be supported by a specific finding below "
+                    "(reference the concrete numbers/patterns the finding reports).\n"
+                    "- Select and connect the findings that actually bear on the goal; "
+                    "ignore findings that turned out irrelevant.\n"
+                    "- Build an argument: state what the data shows, and why it answers "
+                    "the goal. Let the findings dictate the shape of the explanation — "
+                    "do not force any predetermined structure.\n"
+                    "- Be faithful: if the findings are inconclusive or contradict an "
+                    "expected pattern, say so rather than inventing a clean story.\n\n"
+                    "FORMAT:\n"
+                    "- A numbered list of 3-5 key points: 1. **Title**: explanation.\n"
+                    "- Each point 1-3 sentences, grounded in the findings.\n\n"
                     "Findings:\n" + source_text[:6000]
                 )
                 summary = self._llm.generate(prompt, temperature=0.3, max_completion_tokens=1024)
