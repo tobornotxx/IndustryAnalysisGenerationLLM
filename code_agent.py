@@ -35,12 +35,18 @@ class CodeAgent:
 
     def __init__(
         self,
-        model: str = "",
-        api_base: str = os.getenv("API_BASE_DEFAULT", ""),
-        api_key: str = os.getenv("API_KEY_DEFAULT", ""),
+        model: Optional[str] = None,
+        api_base: Optional[str] = None,
+        api_key: Optional[str] = None,
         additional_authorized_imports: List[str] = [],
         **kwargs,
     ):
+        # 未显式传入时, 从 llm_config.json 的 code_agent 场景解析 (兜底环境变量)
+        from llm.scenario_config import resolve_scenario
+        _sc = resolve_scenario("code_agent")
+        model = model or _sc.get("model") or os.getenv("CODE_AGENT_MODEL_NAME", "")
+        api_base = api_base or _sc.get("api_base") or os.getenv("API_BASE_DEFAULT", "")
+        api_key = api_key or _sc.get("api_key") or os.getenv("API_KEY_DEFAULT", "")
         config = LLMConfig(
             model=model,
             api_base=api_base,
@@ -239,22 +245,22 @@ class CodeAgent:
 
 
 def create_code_agent(
-    model: str,
-    api_base: str = os.getenv("API_BASE_DEFAULT"),
-    api_key: str = os.getenv("API_KEY_DEFAULT"),
+    model: Optional[str] = None,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
     additional_authorized_imports: List[str] = [],
     **kwargs,
 ) -> CodeAgent:
     """
     工厂函数：创建 CodeAgent 实例。
-    
+
     参数:
-        model: 模型名称
-        api_base: API 基础 URL
-        api_key: API 密钥
+        model: 模型名称 (None → 从 llm_config.json 的 code_agent 场景解析)
+        api_base: API 基础 URL (None → 同上)
+        api_key: API 密钥 (None → 同上)
         additional_authorized_imports: 允许使用的额外 Python 库
         **kwargs: 传递给 CodeAgent 的额外参数
-    
+
     返回:
         CodeAgent 实例
     """

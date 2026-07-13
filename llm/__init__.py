@@ -11,6 +11,11 @@ from llm.llm import (
     Message,
     create_llm,
 )
+from llm.scenario_config import (
+    SUPPORTED_SCENARIOS,
+    resolve_scenario,
+    get_llm,
+)
 
 __all__ = [
     "BaseLLM",
@@ -19,4 +24,7 @@ __all__ = [
     "LLMResponse",
     "Message",
     "create_llm",
+    "SUPPORTED_SCENARIOS",
+    "resolve_scenario",
+    "get_llm",
 ]

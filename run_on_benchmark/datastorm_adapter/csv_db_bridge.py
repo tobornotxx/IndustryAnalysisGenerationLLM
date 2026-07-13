@@ -22,6 +22,17 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def _period_alias(resample_rule: str) -> str:
+    """把 resample 规则映射成 Series.dt.to_period 用的频率别名。
+
+    to_period 不接受 'MS'/'QS'/'YS'/'h' 这类 offset 别名，需转成 'M'/'Q'/'A'/'H'。
+    """
+    return {
+        "h": "H", "D": "D", "W": "W",
+        "MS": "M", "QS": "Q", "YS": "Y",
+    }.get(resample_rule, resample_rule)
+
+
 class CsvDatabaseBridge:
     """将 CSV 文件暴露为可查询的 SQLite 数据库。
 
@@ -95,7 +106,13 @@ class CsvDatabaseBridge:
         self._conn.commit()
 
     def _build_schema_text(self, table_name: str, df: pd.DataFrame) -> str:
-        """生成可直接注入 prompt 的表结构描述。"""
+        """生成可直接注入 prompt 的表结构描述。
+
+        对时间类型的列额外给出 min/max 范围 + 自适应粒度的分布表，
+        让 Planner/Executor 从一开始就"看见"整个时间跨度和分布形状，
+        而不是被排序后的前几行样本误导（否则会把模糊的 time window
+        脑补成数据起始的那个月，或在稀疏的日粒度上做趋势检验）。
+        """
         lines = [f"Table: {table_name} ({len(df)} rows)"]
         lines.append("Columns:")
         for col in df.columns:
@@ -105,11 +122,100 @@ class CsvDatabaseBridge:
             sample_vals = df[col].dropna().unique()[:5].tolist()
             sample_str = ", ".join(repr(v) for v in sample_vals)
             lines.append(f"  - {col} ({dtype}, {n_unique} unique, {n_null} nulls) — samples: [{sample_str}]")
+
+            # 时间列：追加 range + 自适应粒度分布（纯文本，LLM 可读）
+            temporal = self._temporal_profile(df[col])
+            if temporal:
+                for tline in temporal:
+                    lines.append(f"      {tline}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _temporal_profile(series: "pd.Series") -> list[str]:
+        """若该列是时间列，返回 range + 自适应粒度分布的文本行；否则返回 []。
+
+        粒度不写死：从数据实际跨度反推一个能让桶数落进 [8, 20] 的时间单位
+        （小时/天/周/月/季/年），保证对任意跨度的时间序列都给出信息量适中、
+        不爆炸的分布。这是通用 EDA profiling，不针对特定数据集假设。
+        """
+        import warnings
+
+        s = series.dropna()
+        if len(s) < 3:
+            return []
+        # 只对已是 datetime、或 object 且几乎全部可解析为日期的列启用
+        if pd.api.types.is_datetime64_any_dtype(s):
+            dt = s
+        elif s.dtype == object:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                dt = pd.to_datetime(s, errors="coerce")
+            # 解析成功率不足 90% 则不认为是时间列（避免 ID / 纯数字误判）
+            if dt.notna().mean() < 0.9:
+                return []
+            dt = dt.dropna()
+        else:
+            return []
+
+        if len(dt) < 3:
+            return []
+
+        tmin, tmax = dt.min(), dt.max()
+        span_days = (tmax - tmin).total_seconds() / 86400.0
+        if span_days <= 0:
+            return [f"time range: {tmin} → {tmax} (all values within a single instant)"]
+
+        # —— 粒度自适应：目标 8~20 个桶 ——
+        # (pandas resample rule, 单位名, 副词形式, 每单位天数) 从细到粗
+        candidates = [
+            ("h",  "hour",    "hourly",    1 / 24),
+            ("D",  "day",     "daily",     1),
+            ("W",  "week",    "weekly",    7),
+            ("MS", "month",   "monthly",   30.44),
+            ("QS", "quarter", "quarterly", 91.31),
+            ("YS", "year",    "yearly",    365.25),
+        ]
+        target_max_buckets = 20
+        rule, unit_name, adverb = candidates[-1][0], candidates[-1][1], candidates[-1][2]
+        for r, name, adv, unit_days in candidates:
+            if span_days / unit_days <= target_max_buckets:
+                rule, unit_name, adverb = r, name, adv
+                break
+
+        counts = dt.dt.to_period(_period_alias(rule)).value_counts().sort_index()
+        # 分布文本：紧凑单行 period:count；桶多时截断保护
+        parts = [f"{str(p)}:{int(c)}" for p, c in counts.items()]
+        dist_str = "  ".join(parts)
+        peak_p = counts.idxmax()
+        return [
+            f"time range: {tmin} → {tmax} (span {span_days:.0f} days)",
+            f"{adverb} counts: {dist_str}",
+            f"(peak {unit_name}: {peak_p} with {int(counts.max())}; "
+            f"mean {counts.mean():.1f}/{unit_name} — use this to pick an aggregation "
+            f"scale with enough count per bucket before testing time trends)",
+        ]
+
+
+    # 通用分析准则：注入 executor 上下文，引导"趋势/失衡"类问题按分类列分解。
+    # 不命名任何具体列值（如 Hardware/Fred），只引用"上方列出的分类列"，
+    # 因此对任意数据集成立，不构成对 benchmark 的过拟合。
+    _ANALYTICAL_GUIDANCE = (
+        "\n\nANALYTICAL GUIDANCE (generic — applies to any question on this data):\n"
+        "- When a question concerns a TREND / GROWTH / CHANGE OVER TIME, do not test it "
+        "only on the overall total. Also decompose the trend by the primary categorical "
+        "columns listed above (e.g. category, assigned_to, priority, assignment_group) "
+        "and report per-group trends — a trend may appear in ONE subgroup while being "
+        "absent overall (or vice versa).\n"
+        "- When a question concerns an IMBALANCE / DISTRIBUTION, likewise check whether "
+        "it holds uniformly across time and across categorical groups, or concentrates "
+        "in one subgroup / period.\n"
+        "- Report both the overall result and any notable per-group deviation; do not "
+        "stop at the aggregate."
+    )
 
     def get_schema_context(self) -> str:
         """返回完整的数据库 schema 上下文（用于注入 executor prompt）。"""
-        return self._schema_cache
+        return self._schema_cache + self._ANALYTICAL_GUIDANCE
 
     # ------------------------------------------------------------------
     # DatabaseConnector 兼容接口

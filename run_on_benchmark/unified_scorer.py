@@ -39,12 +39,14 @@ def _load_config() -> dict:
 
 
 _CFG = _load_config()
+# llm_config.json 现为 {default: {...}, scenarios: {...}} 结构; 打分器取 default 块。
+_DEFAULT_CFG = _CFG.get("default") or _CFG
 
-_SCORER_API_KEY = _CFG.get("api_key") or os.getenv("OPENAI_API_KEY", "")
-_SCORER_API_BASE = _CFG.get("api_base") or os.getenv("OPENAI_API_BASE", "")
-_SCORER_MODEL = _CFG.get("model_name", "deepseek-v4-pro")
-_SCORER_TEMPERATURE = float(_CFG.get("temperature", 0.7))
-_SCORER_MAX_TOKENS = int(_CFG.get("max_completion_tokens", 4096))
+_SCORER_API_KEY = _DEFAULT_CFG.get("api_key") or os.getenv("OPENAI_API_KEY", "")
+_SCORER_API_BASE = _DEFAULT_CFG.get("api_base") or os.getenv("OPENAI_API_BASE", "")
+_SCORER_MODEL = _DEFAULT_CFG.get("model_name") or _DEFAULT_CFG.get("model") or "deepseek-v4-pro"
+_SCORER_TEMPERATURE = float(_DEFAULT_CFG.get("temperature", 0.7))
+_SCORER_MAX_TOKENS = int(_DEFAULT_CFG.get("max_completion_tokens") or _DEFAULT_CFG.get("max_tokens") or 4096)
 
 # Monte Carlo 采样次数
 _MC_SAMPLES = 5

@@ -146,25 +146,26 @@ def query_dataframes(
         str: AI 查询结果的字符串
     """
     from code_agent import create_code_agent
+    from llm.scenario_config import resolve_scenario
 
     # 1. 生成或使用已有的 schema 描述
     if schema_str is None:
         schema_str = describe_dataframes_schema(
             dfs, max_sample_rows=3, max_unique_values=8
         )
-    
+
     # 2. 构建完整的 prompt（不包含文件读取指令，读取指令由 Agent 自动生成）
     prompt = _build_query_prompt(schema_str, instruction, dfs)
     logger.info(f"Query prompt constructed, instruction: {instruction}")
 
     # 3. 初始化 Agent
-    # CodeAgent 使用单独的环境变量控制模型，避免与普通 LLM 混用
-    code_agent_model_env = os.getenv("CODE_AGENT_MODEL_NAME")
-    model_id = model or code_agent_model_env or os.getenv(
+    # CodeAgent 模型/端点/key 优先级: 显式传参 > llm_config.json 的 code_agent 场景 > 环境变量
+    _code_sc = resolve_scenario("code_agent")
+    model_id = model or _code_sc.get("model") or os.getenv("CODE_AGENT_MODEL_NAME") or os.getenv(
         "MODEL_DEFAULT", "siliconflow/Qwen/Qwen3-8B"
     )
-    base_url = api_base or os.getenv("API_BASE_DEFAULT")
-    key = api_key or os.getenv("API_KEY_DEFAULT")
+    base_url = api_base or _code_sc.get("api_base") or os.getenv("API_BASE_DEFAULT")
+    key = api_key or _code_sc.get("api_key") or os.getenv("API_KEY_DEFAULT")
 
     agent = create_code_agent(
         model=model_id,

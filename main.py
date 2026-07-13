@@ -11,7 +11,7 @@ from typing import Union, List
 
 import pandas as pd
 
-from llm import OpenAILikeLLM, LLMConfig
+from llm import OpenAILikeLLM, LLMConfig, get_llm
 from data_analysis import analyze_region
 from doc_writing import DocWriter
 from rewriting import Rewriter
@@ -75,40 +75,25 @@ def _add_ranking_columns(
 def _create_planning_llm() -> OpenAILikeLLM:
     """
     创建用于"数据分析规划"阶段的 LLM 客户端。
-    此阶段使用默认模型（环境变量）即可。
+    模型/端点/key 由 llm_config.json 的 planning 场景配置。
     """
-    return OpenAILikeLLM(config=LLMConfig())
+    return get_llm("planning")
 
 
 def _create_writing_llm() -> OpenAILikeLLM:
     """
-    创建用于"报告撰写"阶段的高级闭源 LLM 客户端。
-
+    创建用于"报告撰写"阶段的 LLM 客户端。
+    模型/端点/key 由 llm_config.json 的 writing 场景配置。
     """
-    model_name = os.getenv("ADVANCED_MODEL_NAME")
-    api_base = os.getenv("API_BASE_ADVANCED")
-    api_key = os.getenv("API_KEY_ADVANCED")
-    return OpenAILikeLLM(config=LLMConfig(
-        model=model_name,
-        api_base=api_base,
-        api_key=api_key,
-        temperature=0.7,
-    ))
+    return get_llm("writing")
 
 
 def _create_rewriting_llm() -> OpenAILikeLLM:
     """
-    创建用于"文本改写/润色"阶段的高级闭源 LLM 客户端。
+    创建用于"文本改写/润色"阶段的 LLM 客户端。
+    模型/端点/key 由 llm_config.json 的 rewriting 场景配置。
     """
-    model_name = os.getenv("ADVANCED_MODEL_NAME")
-    api_base = os.getenv("API_BASE_ADVANCED")
-    api_key = os.getenv("API_KEY_ADVANCED")
-    return OpenAILikeLLM(config=LLMConfig(
-        model=model_name,
-        api_base=api_base,
-        api_key=api_key,
-        temperature=0.7,
-    ))
+    return get_llm("rewriting")
 
 
 # ============================================================

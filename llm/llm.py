@@ -81,13 +81,19 @@ class LLMConfig:
     timeout: Optional[float] = 120.0  # 请求超时秒数
 
     def __post_init__(self):
-        # 从环境变量补全空值
+        # 优先级: 显式传参 > 配置文件 default 块 > 环境变量
+        # 配置文件不存在时回退到环境变量, 保持旧行为兼容。
+        try:
+            from llm.scenario_config import resolve_scenario
+            _default = resolve_scenario("default")
+        except Exception:
+            _default = {}
         if not self.model:
-            self.model = os.getenv("MODEL_DEFAULT", "")
+            self.model = _default.get("model") or os.getenv("MODEL_DEFAULT", "")
         if not self.api_base:
-            self.api_base = os.getenv("API_BASE_DEFAULT", "")
+            self.api_base = _default.get("api_base") or os.getenv("API_BASE_DEFAULT", "")
         if not self.api_key:
-            self.api_key = os.getenv("API_KEY_DEFAULT", "")
+            self.api_key = _default.get("api_key") or os.getenv("API_KEY_DEFAULT", "")
 
 
 # ============================================================

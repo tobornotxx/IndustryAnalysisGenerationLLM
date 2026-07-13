@@ -132,14 +132,20 @@ def _run_and_score_flag(adapter, dataset_json_path: str, savedir: Path) -> dict:
         "score_summary": float(score_summary),
         "n_pred_insights": len(pred_insights),
         "n_gt_insights": len(dataset_dict["insights"]),
-        "pred_summary": pred_summary[:300],
+        "pred_summary": pred_summary[:300],  # summary.json 里保留短预览
         "scorer": get_scorer_config(),
         "status": "ok",
     }
 
+    # result.json 落盘完整内容（含完整 pred_summary + goal + gt_summary），
+    # 方便事后复盘：summary.json 里的 pred_summary 只是 300 字预览，
+    # 完整 summary 之前只能从 MB 级 run.log 里捞，非常不便。
     with open(savedir / "result.json", "w") as f:
         json.dump({
             **result,
+            "goal": metadata.get("goal", ""),
+            "pred_summary_full": pred_summary,
+            "gt_summary": dataset_dict.get("summary", ""),
             "pred_insights": pred_insights,
             "gt_insights": dataset_dict["insights"],
         }, f, indent=2, ensure_ascii=False)
