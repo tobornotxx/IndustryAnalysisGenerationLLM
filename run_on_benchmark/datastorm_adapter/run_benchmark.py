@@ -271,15 +271,16 @@ def main() -> None:
 
     # 检查 api_key 来源：CLI > 环境变量 > llm_config.json
     if not os.environ.get("OPENAI_API_KEY"):
-        # 也尝试从 llm_config.json 读取
+        # 也尝试从 llm_config.json 读取（新结构: default.api_key; 兼容旧顶层 api_key）
         import json as _json
         from pathlib import Path as _Path
         _json_path = _Path(__file__).resolve().parents[3] / "MyDataStorm" / "datastorm" / "llm_config.json"
         try:
             if _json_path.is_file():
                 _cfg = _json.loads(_json_path.read_text(encoding="utf-8"))
-                if _cfg.get("api_key"):
-                    os.environ["OPENAI_API_KEY"] = _cfg["api_key"]
+                _key = (_cfg.get("default") or {}).get("api_key") or _cfg.get("api_key")
+                if _key:
+                    os.environ["OPENAI_API_KEY"] = _key
         except Exception:
             pass
 
