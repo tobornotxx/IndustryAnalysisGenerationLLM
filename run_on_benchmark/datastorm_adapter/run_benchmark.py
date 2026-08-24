@@ -91,9 +91,10 @@ def _run_and_score_flag(adapter, dataset_json_path: str, savedir: Path) -> dict:
     """
     from insightbench import benchmarks
     from unified_scorer import (
-        score_insights as g_eval_insights,
+        score_insight_matrix as g_eval_matrix,
         score_summary as g_eval_summary,
         get_scorer_config,
+        get_usage_stats,
     )
 
     flag_id = Path(dataset_json_path).stem
@@ -117,10 +118,12 @@ def _run_and_score_flag(adapter, dataset_json_path: str, savedir: Path) -> dict:
         return_summary=True,
     )
 
-    score_insights = g_eval_insights(
+    # 一次 pairwise 矩阵同时产出 recall / precision / F1（无额外 API 调用）
+    ins = g_eval_matrix(
         pred_insights=pred_insights,
         gt_insights=dataset_dict["insights"],
     )
+    score_insights = ins["recall"]
     score_summary = g_eval_summary(
         pred_summary=pred_summary,
         gt_summary=dataset_dict.get("summary", ""),
@@ -129,11 +132,17 @@ def _run_and_score_flag(adapter, dataset_json_path: str, savedir: Path) -> dict:
     result = {
         "flag": flag_id,
         "score_insights": float(score_insights),
+        # InsightEval(2511.22884)三指标；recall 与 score_insights 同值，
+        # 并列保留是为了让语义显式（历史字段名不含 recall 字样）。
+        "insights_recall": float(ins["recall"]),
+        "insights_precision": float(ins["precision"]),
+        "insights_f1": float(ins["f1"]),
         "score_summary": float(score_summary),
         "n_pred_insights": len(pred_insights),
         "n_gt_insights": len(dataset_dict["insights"]),
         "pred_summary": pred_summary[:300],  # summary.json 里保留短预览
         "scorer": get_scorer_config(),
+        "scorer_usage": get_usage_stats(),  # token 用量 + 缓存命中率
         "status": "ok",
     }
 
@@ -151,8 +160,15 @@ def _run_and_score_flag(adapter, dataset_json_path: str, savedir: Path) -> dict:
         }, f, indent=2, ensure_ascii=False)
 
     logger.info(
-        "%s → score_insights=%.4f, score_summary=%.4f",
-        flag_id, score_insights, score_summary,
+        "%s → recall=%.4f, precision=%.4f, F1=%.4f, summary=%.4f",
+        flag_id, ins["recall"], ins["precision"], ins["f1"], score_summary,
+    )
+    _u = result["scorer_usage"]
+    logger.info(
+        "%s → scorer usage: %d calls, prompt=%d tok, completion=%d tok, "
+        "cache_hit=%d tok (%.1f%%), order=%s",
+        flag_id, _u["calls"], _u["prompt_tokens"], _u["completion_tokens"],
+        _u["cache_hit_tokens"], _u["cache_hit_rate"] * 100, _u["prompt_order"],
     )
     return result
 
@@ -433,14 +449,38 @@ def main() -> None:
         json.dump(run_info, f, indent=2, ensure_ascii=False)
 
     if ok_results:
-        avg_insights = sum(r["score_insights"] for r in ok_results) / len(ok_results)
-        avg_summary = sum(r["score_summary"] for r in ok_results) / len(ok_results)
+        def _avg(key: str) -> float | None:
+            vals = [r[key] for r in ok_results if r.get(key) is not None]
+            return sum(vals) / len(vals) if vals else None
+
+        avg_insights = _avg("score_insights") or 0.0
+        avg_summary = _avg("score_summary") or 0.0
+        avg_prec = _avg("insights_precision")
+        avg_f1 = _avg("insights_f1")
+
+        # 累计 scorer token 用量与缓存命中（跨 flag 汇总）
+        tot = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cache_hit_tokens": 0}
+        for r in ok_results:
+            u = r.get("scorer_usage") or {}
+            for k in tot:
+                tot[k] += int(u.get(k, 0) or 0)
+
         print("\n" + "=" * 60)
         print(f"Benchmark: {args.benchmark_type} | Model: {args.model_name}")
-        print(f"Scorer: G-Eval | Judge: {scorer_cfg['model']} | logprobs: {scorer_cfg['logprobs']}")
+        print(f"Scorer: G-Eval | Judge: {scorer_cfg['model']} | logprobs: {scorer_cfg['logprobs']}"
+              f" | prompt_order: {scorer_cfg.get('prompt_order', 'n/a')}")
         print(f"Completed: {len(ok_results)}/{len(dataset_paths)}")
-        print(f"Avg score_insights: {avg_insights:.4f}")
-        print(f"Avg score_summary:  {avg_summary:.4f}")
+        print(f"Avg score_insights (recall): {avg_insights:.4f}")
+        if avg_prec is not None:
+            print(f"Avg insights_precision:      {avg_prec:.4f}")
+        if avg_f1 is not None:
+            print(f"Avg insights_F1:             {avg_f1:.4f}")
+        print(f"Avg score_summary:           {avg_summary:.4f}")
+        if tot["prompt_tokens"]:
+            hit_pct = tot["cache_hit_tokens"] / tot["prompt_tokens"] * 100
+            print(f"Scorer tokens: {tot['calls']} calls | "
+                  f"prompt={tot['prompt_tokens']:,} | completion={tot['completion_tokens']:,} | "
+                  f"cache_hit={tot['cache_hit_tokens']:,} ({hit_pct:.1f}%)")
         print(f"Results saved to: {savedir_base.resolve()}")
         print("=" * 60)
     else:

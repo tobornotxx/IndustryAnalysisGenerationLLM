@@ -44,3 +44,5 @@ venv.bak/
 /human_validation/validation_reference_backup
 /human_validation/agent_result.txt
 /benchmarkresults
+# API keys / 本地 LLM 配置（含真实密钥，切勿提交）
+llm_config.json

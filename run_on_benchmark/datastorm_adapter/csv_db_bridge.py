@@ -15,11 +15,37 @@ import logging
 import sqlite3
 import tempfile
 import os
+import sys
 from typing import Any
 
 import pandas as pd
 
+# skill 包位于 MyDataStorm 内；bridge 在 IndustryAnalysisGenerationLLM 下，
+# run_benchmark.py 通常已把 MyDataStorm 加进 sys.path，这里做路径兜底。
+try:
+    from datastorm.skills import get_skill_package, describe_categorical_columns
+except ImportError:  # pragma: no cover
+    _mds = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "MyDataStorm")
+    )
+    if os.path.isdir(_mds) and _mds not in sys.path:
+        sys.path.insert(0, _mds)
+    try:
+        from datastorm.skills import get_skill_package, describe_categorical_columns
+    except ImportError:
+        get_skill_package = None  # type: ignore[assignment]
+        describe_categorical_columns = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
+
+# 适合做「分组轴」的列的最大基数：超过则是 ID / 自由文本，分组无意义。
+_MAX_CATEGORICAL_CARDINALITY = 50
+# 分组轴的「理想基数」：用于给候选列排序（见 _pick_grouping_columns）。
+# 纯结构参数，不针对任何数据集——基数太低（2-3，如布尔状态、系统元数据）
+# 信息量不足，太高不便分组，中间段的业务维度列最有分析价值。
+_IDEAL_CARDINALITY = 6
+# 分类列 unique 值枚举上限（列序列化用）
+_MAX_ENUM_VALUES = 12
 
 
 def _period_alias(resample_rule: str) -> str:
@@ -77,6 +103,8 @@ class CsvDatabaseBridge:
     def _load_csvs(self) -> None:
         """把 CSV 文件加载进 SQLite 数据库。"""
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        # 适合做分组轴的分类列（跨所有表汇总），供 skill 引导渲染用
+        self._grouping_columns: list[str] = []
 
         df = pd.read_csv(self._csv_path)
         df.to_sql(self._table_name, self._conn, if_exists="replace", index=False)
@@ -85,6 +113,7 @@ class CsvDatabaseBridge:
             f"({len(df)} rows, {len(df.columns)} columns)"
         )
         self._schema_cache = self._build_schema_text(self._table_name, df)
+        self._grouping_columns.extend(self._pick_grouping_columns(df))
         logger.info(
             "Loaded CSV '%s' → table '%s' (%d rows)",
             self._csv_path, self._table_name, len(df),
@@ -98,37 +127,117 @@ class CsvDatabaseBridge:
                 f"({len(df_user)} rows, {len(df_user.columns)} columns)"
             )
             self._schema_cache += "\n\n" + self._build_schema_text(self._user_table_name, df_user)
+            for c in self._pick_grouping_columns(df_user):
+                if c not in self._grouping_columns:
+                    self._grouping_columns.append(c)
             logger.info(
                 "Loaded user CSV '%s' → table '%s' (%d rows)",
                 self._user_csv_path, self._user_table_name, len(df_user),
             )
 
+        logger.info(
+            "Grouping columns for analytical guidance: %s",
+            self._grouping_columns or "(none — will use generic wording)",
+        )
         self._conn.commit()
 
     def _build_schema_text(self, table_name: str, df: pd.DataFrame) -> str:
-        """生成可直接注入 prompt 的表结构描述。
+        """生成可直接注入 prompt 的表结构描述（按列类型序列化）。
 
-        对时间类型的列额外给出 min/max 范围 + 自适应粒度的分布表，
-        让 Planner/Executor 从一开始就"看见"整个时间跨度和分布形状，
-        而不是被排序后的前几行样本误导（否则会把模糊的 time window
-        脑补成数据起始的那个月，或在稀疏的日粒度上做趋势检验）。
+        序列化策略（吸收 DataGovBench arXiv 2607.06482 的消融结论）：
+        该论文实测在真实政府数据上——
+          · 只加 schema 几乎无增益（0.310 → 0.308）
+          · 多塞样本行反而掉分（0.275），"LLM 在大池子里找不到关键信息"
+          · 按列类型做紧凑统计摘要则大幅提升（+50 分）
+        因此这里对每列按 dtype 给**针对性摘要**而非堆原始行：
+          - 数值列   → min/max/mean + 四分位
+          - 时间列   → range + 自适应粒度分布（原有 _temporal_profile）
+          - 低基数列 → 枚举 unique 值（可直接当分组轴）
+          - 高基数列 → 只给基数 + 少量样本（ID/自由文本，不适合分组）
         """
         lines = [f"Table: {table_name} ({len(df)} rows)"]
         lines.append("Columns:")
         for col in df.columns:
-            dtype = str(df[col].dtype)
-            n_unique = df[col].nunique()
-            n_null = df[col].isnull().sum()
-            sample_vals = df[col].dropna().unique()[:5].tolist()
-            sample_str = ", ".join(repr(v) for v in sample_vals)
-            lines.append(f"  - {col} ({dtype}, {n_unique} unique, {n_null} nulls) — samples: [{sample_str}]")
+            s = df[col]
+            dtype = str(s.dtype)
+            n_unique = s.nunique()
+            n_null = int(s.isnull().sum())
+            lines.append(
+                f"  - {col} ({dtype}, {n_unique} unique, {n_null} nulls)"
+            )
 
-            # 时间列：追加 range + 自适应粒度分布（纯文本，LLM 可读）
-            temporal = self._temporal_profile(df[col])
+            # 时间列：range + 自适应粒度分布
+            temporal = self._temporal_profile(s)
             if temporal:
                 for tline in temporal:
                     lines.append(f"      {tline}")
+                continue
+
+            # 数值列：分布摘要而非样本罗列
+            if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
+                nn = s.dropna()
+                if len(nn) > 0:
+                    try:
+                        q1, q2, q3 = nn.quantile([0.25, 0.5, 0.75])
+                        lines.append(
+                            f"      numeric: min={nn.min():g}, q1={q1:g}, median={q2:g}, "
+                            f"q3={q3:g}, max={nn.max():g}, mean={nn.mean():g}"
+                        )
+                    except Exception:
+                        lines.append(f"      numeric: min={nn.min():g}, max={nn.max():g}")
+                continue
+
+            # 低基数列：枚举取值 —— 这类列可直接作为分组轴
+            if 0 < n_unique <= _MAX_ENUM_VALUES:
+                vals = s.dropna().unique().tolist()
+                lines.append(
+                    "      values: [" + ", ".join(repr(v) for v in vals) + "]"
+                )
+            elif n_unique <= _MAX_CATEGORICAL_CARDINALITY:
+                vals = s.dropna().unique()[:_MAX_ENUM_VALUES].tolist()
+                lines.append(
+                    f"      values ({n_unique} total, showing {len(vals)}): ["
+                    + ", ".join(repr(v) for v in vals) + "]"
+                )
+            else:
+                # 高基数（ID / 自由文本）：不适合分组，给少量样本即可
+                vals = s.dropna().unique()[:3].tolist()
+                lines.append(
+                    f"      high-cardinality ({n_unique} distinct) — samples: ["
+                    + ", ".join(repr(v) for v in vals) + "]"
+                )
         return "\n".join(lines)
+
+    @staticmethod
+    def _pick_grouping_columns(df: pd.DataFrame, max_n: int = 6) -> list[str]:
+        """挑出适合做分组轴的低基数分类列（数据无关的启发式）。
+
+        规则：非数值、非时间、基数在 2.._MAX_CATEGORICAL_CARDINALITY 之间。
+
+        排序不能用「基数升序」——那会让 2 值的状态列和 3 值的系统元数据列
+        （如 updated_by = admin/system）挤掉基数 5 左右、分析价值高得多的
+        业务维度列。改为按「离理想基数的距离」排序：基数太低信息量不足，
+        太高不适合分组，中间段最有解释力。理想值 _IDEAL_CARDINALITY 是
+        纯结构参数，不依赖任何数据集的具体列。
+
+        这些列名会注入 skill 引导，取代 v8 里硬编码的 ServiceNow 字段名。
+        """
+        candidates: list[tuple[float, int, str]] = []
+        for col in df.columns:
+            s = df[col]
+            if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
+                continue
+            if pd.api.types.is_datetime64_any_dtype(s):
+                continue
+            # object 列里的时间列（bridge 用文本存日期）也要排除
+            if CsvDatabaseBridge._temporal_profile(s):
+                continue
+            n_unique = s.nunique()
+            if 2 <= n_unique <= _MAX_CATEGORICAL_CARDINALITY:
+                # 距理想基数越近越优先；同距时基数大的略优（信息量更足）
+                candidates.append((abs(n_unique - _IDEAL_CARDINALITY), -n_unique, col))
+        candidates.sort()
+        return [c for _, _, c in candidates[:max_n]]
 
     @staticmethod
     def _temporal_profile(series: "pd.Series") -> list[str]:
@@ -196,26 +305,35 @@ class CsvDatabaseBridge:
         ]
 
 
-    # 通用分析准则：注入 executor 上下文，引导"趋势/失衡"类问题按分类列分解。
-    # 不命名任何具体列值（如 Hardware/Fred），只引用"上方列出的分类列"，
-    # 因此对任意数据集成立，不构成对 benchmark 的过拟合。
-    _ANALYTICAL_GUIDANCE = (
-        "\n\nANALYTICAL GUIDANCE (generic — applies to any question on this data):\n"
-        "- When a question concerns a TREND / GROWTH / CHANGE OVER TIME, do not test it "
-        "only on the overall total. Also decompose the trend by the primary categorical "
-        "columns listed above (e.g. category, assigned_to, priority, assignment_group) "
-        "and report per-group trends — a trend may appear in ONE subgroup while being "
-        "absent overall (or vice versa).\n"
-        "- When a question concerns an IMBALANCE / DISTRIBUTION, likewise check whether "
-        "it holds uniformly across time and across categorical groups, or concentrates "
-        "in one subgroup / period.\n"
-        "- Report both the overall result and any notable per-group deviation; do not "
-        "stop at the aggregate."
-    )
+    # bridge 消费的 skill（顺序即注入顺序）。
+    # v8 曾把这些引导硬编码在此处，且举例写了 category/assigned_to/priority/
+    # assignment_group —— 那是 ServiceNow 工单字段，构成对 benchmark 的隐性
+    # 过拟合（迁移到政府数据时 agent 会去找不存在的列）。现改为从 skill 包加载，
+    # 列名在运行时由本数据集真实 schema 注入（见 _pick_grouping_columns）。
+    _BRIDGE_SKILL_IDS = [
+        "decompose-trend-by-category",
+        "decompose-imbalance-by-group",
+        "pick-adequate-time-bucket",
+    ]
+
+    def _build_analytical_guidance(self) -> str:
+        """从 skill 包渲染分析引导，列名用本数据集的真实分类列填充。"""
+        if get_skill_package is None or describe_categorical_columns is None:
+            logger.warning("Skill package unavailable — schema context without guidance")
+            return ""
+        try:
+            pkg = get_skill_package()
+            return pkg.render_guidance(
+                self._BRIDGE_SKILL_IDS,
+                categorical_columns=describe_categorical_columns(self._grouping_columns),
+            )
+        except Exception as e:
+            logger.warning("Skill guidance render failed (%s) — continuing without", e)
+            return ""
 
     def get_schema_context(self) -> str:
         """返回完整的数据库 schema 上下文（用于注入 executor prompt）。"""
-        return self._schema_cache + self._ANALYTICAL_GUIDANCE
+        return self._schema_cache + self._build_analytical_guidance()
 
     # ------------------------------------------------------------------
     # DatabaseConnector 兼容接口
