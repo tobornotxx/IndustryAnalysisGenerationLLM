@@ -157,6 +157,10 @@ def _run_and_score_flag(adapter, dataset_json_path: str, savedir: Path) -> dict:
             "gt_summary": dataset_dict.get("summary", ""),
             "pred_insights": pred_insights,
             "gt_insights": dataset_dict["insights"],
+            # pairwise 打分矩阵 matrix[i][j] = S(pred_j, gt_i)。
+            # 落盘是为了事后能逐 GT 复盘「哪条没命中、最接近的 pred 是什么」，
+            # 这是定位覆盖盲区最直接的数据，重算需要重跑全部判分调用。
+            "score_matrix": ins.get("matrix", []),
         }, f, indent=2, ensure_ascii=False)
 
     logger.info(

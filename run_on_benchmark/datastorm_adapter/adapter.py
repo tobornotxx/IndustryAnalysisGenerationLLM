@@ -20,6 +20,7 @@ import re
 import sys
 import os
 import json as _json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +89,7 @@ class DataStormAdapter:
         savedir: str | None = None,
         verbose: bool = False,
         summary_samples: int = 3,
+        insight_mode: str | None = None,
     ) -> None:
         self.model_name = model_name
         self.max_layers = max_layers
@@ -97,6 +99,19 @@ class DataStormAdapter:
         self.savedir = savedir
         # 思路4: summary 自一致性的草稿份数 (1 = 关闭, 退化为单次生成)
         self._summary_samples = summary_samples
+        # insight 表述形态 (见 _extract_insights)：
+        #   "raw"    每节点原始 "问题 + 答案" 长文本 (v2-v8 历史行为)
+        #   "node"   逐节点归纳成一条结论句 (1:1, 条数不变)
+        #   "merge"  跨节点合并去重成少量结论 (N:1, 条数减少)
+        # 只有 "merge" 会改变 pred 条数, 因而才可能影响 precision
+        # (precision 的分母是 pred 条数; 1:1 归纳改措辞不改条数)。
+        # None 时读环境变量 DATASTORM_INSIGHT_MODE, 默认 "raw" 以保持与历史基线可比。
+        if insight_mode is None:
+            insight_mode = os.getenv("DATASTORM_INSIGHT_MODE", "raw").strip().lower()
+        if insight_mode not in ("raw", "node", "merge"):
+            logger.warning("Unknown insight_mode %r; falling back to 'raw'", insight_mode)
+            insight_mode = "raw"
+        self._insight_mode = insight_mode
 
         if verbose:
             logging.basicConfig(level=logging.DEBUG)
@@ -296,32 +311,177 @@ class DataStormAdapter:
 
         return pipeline
 
+    # ── 逐节点把 (问题 + 答案) 归纳成一条结论句 ──────────────────────
+    #
+    # 背景：探索节点的原始文本是「问题 + SQL + 统计输出」，平均约 2800 字符，
+    # 形态上是"分析过程"而非"发现"。GT insight 则是简短结论
+    # （如 "The increase in volume of incidents is seen only for Hardware"）。
+    # 判官要从一大段过程里自己推断结论，评分因此偏低且不稳定。
+    #
+    # 与 _condense_insights 的区别：那个是把整篇报告压成 4-8 条（会丢覆盖），
+    # 这里保持**节点粒度 1:1**——每个节点出一条结论，覆盖面不变，只改表述形态。
+    #
+    # 注意：这一层是可开关的（condense_insights 参数 / DATASTORM_CONDENSE 环境
+    # 变量）。历史版本 v2-v8 走的是原始长文本路径，在纯 recall 尺子下"多产长
+    # 文本"曾被验证有效（pred 6.8→24 期间 recall 0.56→0.88）；但 InsightEval
+    # 引入 precision 后，冗余会被惩罚。两条路径都要能跑，才能公平对比。
+    _NODE_CONDENSE_PROMPT = (
+        "Below is one step of a data analysis: the question that was investigated "
+        "and the raw result obtained.\n\n"
+        "Write ONE sentence stating the FINDING — what the data actually revealed.\n\n"
+        "Rules:\n"
+        "- State the conclusion, not the procedure. Do NOT restate the question.\n"
+        "- Name the specific entities involved (which column, which category, which "
+        "direction of change).\n"
+        "- Good: \"Incident volume increased over the period only in the Hardware "
+        "category, while other categories stayed flat.\"\n"
+        "- Good: \"There is no correlation between incident volume and time to "
+        "resolution for any agent.\"\n"
+        "- Bad: \"The monthly trend of incidents was analysed by category.\" "
+        "(that is the procedure, not the finding)\n"
+        "- If the result is inconclusive or empty, say so plainly.\n"
+        "- One sentence. No preamble, no bullet points."
+    )
+
+    def _condense_node(self, question: str, answer: str) -> str:
+        """把单个探索节点归纳成一条结论句；失败时回退原始拼接文本。"""
+        prompt = (
+            self._NODE_CONDENSE_PROMPT
+            + f"\n\nQuestion:\n{question}\n\nRaw result:\n{answer[:4000]}\n\nFinding:"
+        )
+        try:
+            text = self._llm.generate(
+                prompt, scenario="insight_bank", temperature=0.3,
+                max_completion_tokens=256,
+            )
+            text = (text or "").strip()
+            # 去掉模型可能加的前缀
+            text = re.sub(r"^(Finding|Insight)\s*:\s*", "", text, flags=re.I).strip()
+            if len(text) >= 20:
+                return text
+        except Exception as e:
+            logger.warning("Node condense failed (%s); falling back to raw text", e)
+        return f"{question} {answer}".strip()
+
+    def _condense_nodes_parallel(self, raw_pairs: list[tuple[str, str]]) -> list[str]:
+        """并行把每个节点归纳成一条结论句（节点间互不依赖）。"""
+        findings: list[str] = [""] * len(raw_pairs)
+        with ThreadPoolExecutor(max_workers=min(8, len(raw_pairs))) as pool:
+            futs = {
+                pool.submit(self._condense_node, q, a): i
+                for i, (q, a) in enumerate(raw_pairs)
+            }
+            for fut in as_completed(futs):
+                i = futs[fut]
+                try:
+                    findings[i] = fut.result()
+                except Exception as e:
+                    logger.warning("Condense worker failed for node %d: %s", i, e)
+                    q, a = raw_pairs[i]
+                    findings[i] = f"{q} {a}".strip()
+        return findings
+
+    # ── 跨节点合并去重：N 个节点 → 少量互不重复的结论 ──────────────────
+    #
+    # 与 _condense_node 的关键区别：那个是 1:1（改措辞，不改条数），
+    # 这个是 N:1（减少条数）。因为 precision = 每条 pred 取最佳 GT 后求均值，
+    # **分母是 pred 条数**，所以只有减少条数才可能提升 precision。
+    #
+    # 风险：合并会丢覆盖 → recall 可能下降。是否值得须实测，不能拍脑袋。
+    _MERGE_PROMPT = (
+        "Below are findings from a multi-step data analysis. Several of them "
+        "investigate overlapping angles and restate the same underlying pattern.\n\n"
+        "Consolidate them into a set of DISTINCT findings.\n\n"
+        "Rules:\n"
+        "- Merge findings that describe the same underlying pattern into one, "
+        "keeping the most specific version.\n"
+        "- Keep findings that describe genuinely different patterns separate — "
+        "do NOT over-merge. Coverage matters: every distinct pattern present in "
+        "the input must survive in the output.\n"
+        "- Each output finding states a conclusion (what the data revealed), "
+        "names the entities involved, and is one sentence.\n"
+        "- Do not restate questions or describe procedures.\n"
+        "- Do not invent findings that are not supported by the input.\n"
+        "- Output as many findings as there are distinct patterns — no fixed count.\n\n"
+        'Return a JSON object: {"findings": ["...", "..."]}'
+    )
+
+    def _merge_findings(self, findings: list[str]) -> list[str]:
+        """把多条发现合并去重；失败时原样返回。"""
+        if len(findings) <= 2:
+            return findings
+        numbered = "\n".join(f"{i+1}. {f}" for i, f in enumerate(findings))
+        prompt = f"{self._MERGE_PROMPT}\n\nFindings:\n{numbered[:12000]}"
+        try:
+            result = self._llm.generate_json(
+                prompt, scenario="insight_bank", temperature=0.3,
+                max_completion_tokens=2048,
+            )
+            out = result.get("findings", [])
+            if isinstance(out, list):
+                cleaned = [
+                    s.strip() for s in out
+                    if isinstance(s, str) and len(s.strip()) > 15
+                ]
+                if cleaned:
+                    logger.info(
+                        "Merged %d findings → %d distinct findings",
+                        len(findings), len(cleaned),
+                    )
+                    return cleaned
+        except Exception as e:
+            logger.warning("Merge failed (%s); keeping unmerged findings", e)
+        return findings
+
     def _extract_insights(self, report: FinalReport, exploration_nodes: list | None = None) -> list[str]:
         """提取 insight statements 用于评分。
 
-        优先策略 (实验验证可显著提升 recall):
-          直接使用完整探索树每个节点的 (问题 + 答案) 作为一条 insight,
-          绕开 InsightBank 过滤 + 报告生成 + condense 这条有损链。
-          评分器为纯 recall (每条 GT 取最佳匹配 pred, 无 precision 惩罚),
-          因此保留全部发现只增不减命中机会。
+        优先策略: 使用完整探索树的每个节点作为发现来源, 绕开 InsightBank 过滤
+        + 报告生成这条有损链, 保证覆盖面。
 
-        回退策略:
-          探索树为空时, 退回从最终报告 markdown 抽取。
+        表述形态由 self._insight_mode 决定 (见 __init__):
+          "raw"   → 原始 "问题 + 答案" 拼接   (条数 = 节点数, v2-v8 历史行为)
+          "node"  → 逐节点归纳成结论句       (条数 = 节点数, 只改措辞)
+          "merge" → 归纳后再跨节点合并去重   (条数 < 节点数)
+
+        注意: precision 的分母是 pred 条数, 因此只有 "merge" 才可能改变
+        precision; "node" 仅改措辞不改条数。
+
+        回退策略: 探索树为空时, 退回从最终报告 markdown 抽取。
         """
-        # —— 优先: 从完整探索树提取原始发现 ——
+        # —— 优先: 从完整探索树提取发现 ——
         if exploration_nodes:
-            findings: list[str] = []
+            raw_pairs: list[tuple[str, str]] = []
             for node in exploration_nodes:
                 q = (getattr(node, "question", "") or "").strip()
-                # 优先用带统计的 summary_text, 否则用 answer
-                ans = (getattr(node, "summary_text", "") or getattr(node, "answer", "") or "").strip()
+                # 用 answer, 不用 summary_text —— 后者额外拼了原始统计块
+                # (distinct_percentage / top_values / min / max / mean)。
+                # 那些数字占 pred 字符数的约 50%, 且是 answer 已表述内容的重复;
+                # 保留它们只是用一堆统计量去扩大与 GT 的字符匹配面, 属于对评分器
+                # 的特化(见 SKILL_PACKAGE_DESIGN 的纯度审计), 不是真的产出洞察。
+                ans = (getattr(node, "answer", "") or "").strip()
                 if not ans:
                     continue
                 # 跳过执行失败的节点
                 if ans.lower().startswith("execution failed"):
                     continue
-                findings.append(f"{q} {ans}".strip())
-            if findings:
+                raw_pairs.append((q, ans))
+
+            if raw_pairs:
+                mode = self._insight_mode
+                if mode == "raw":
+                    return [f"{q} {a}".strip() for q, a in raw_pairs]
+
+                findings = self._condense_nodes_parallel(raw_pairs)
+                logger.info(
+                    "Condensed %d exploration nodes into finding statements "
+                    "(avg %d chars, was %d chars)",
+                    len(findings),
+                    sum(map(len, findings)) // max(1, len(findings)),
+                    sum(len(f"{q} {a}") for q, a in raw_pairs) // max(1, len(raw_pairs)),
+                )
+                if mode == "merge":
+                    findings = self._merge_findings(findings)
                 return findings
 
         # —— 回退: 从报告 markdown 抽取 ——
@@ -418,7 +578,9 @@ class DataStormAdapter:
             findings = []
             for node in exploration_nodes:
                 q = (getattr(node, "question", "") or "").strip()
-                ans = (getattr(node, "summary_text", "") or getattr(node, "answer", "") or "").strip()
+                # 与 _extract_insights 一致: 用 answer 不用 summary_text,
+                # 不把原始统计块喂进 summary 生成
+                ans = (getattr(node, "answer", "") or "").strip()
                 if ans and not ans.lower().startswith("execution failed"):
                     findings.append(f"- Q: {q}\n  Finding: {ans}")
             source_text = "\n".join(findings)
