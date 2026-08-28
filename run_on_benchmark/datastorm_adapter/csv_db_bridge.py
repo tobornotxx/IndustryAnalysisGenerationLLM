@@ -44,8 +44,21 @@ _MAX_CATEGORICAL_CARDINALITY = 50
 # 纯结构参数，不针对任何数据集——基数太低（2-3，如布尔状态、系统元数据）
 # 信息量不足，太高不便分组，中间段的业务维度列最有分析价值。
 _IDEAL_CARDINALITY = 6
-# 分类列 unique 值枚举上限（列序列化用）
-_MAX_ENUM_VALUES = 12
+
+# ── 样本展示预算 ────────────────────────────────────────────────────
+# 不用「固定展示 N 个样本」，而是给每列一个字符预算，尽量多展示直到超预算。
+# 这样短值列（如 category: 'Software'/'Hardware'）能把取值全列出来，
+# 长文本列（如 short_description）自动收敛到三四条，无需为不同列型写死条数。
+_SAMPLE_CHAR_BUDGET = 500
+# 单个样本值的截断上限。超长值截断并标注，提示 agent 可自行查询完整内容
+# —— executor 手里有 execute_sql / execute_python_from_sql，这是可执行建议。
+_CELL_MAX_CHARS = 100
+# 整个 schema 文本的字符上限。多表场景（DataGovBench 最多 5 张表 × 18 列）
+# 若不设总闸，schema context 会膨胀到万 token 级。
+_SCHEMA_TOTAL_BUDGET = 40000
+# 近乎唯一的列（ID / 主键 / 时间戳）的样本预算。这类列样本高度同构，
+# 列满预算不增信息量，只挤占其他列空间。
+_ID_LIKE_SAMPLE_BUDGET = 120
 
 
 def _period_alias(resample_rule: str) -> str:
@@ -141,19 +154,74 @@ class CsvDatabaseBridge:
         )
         self._conn.commit()
 
-    def _build_schema_text(self, table_name: str, df: pd.DataFrame) -> str:
-        """生成可直接注入 prompt 的表结构描述（按列类型序列化）。
+    @staticmethod
+    def _format_samples(series: "pd.Series", budget: int = _SAMPLE_CHAR_BUDGET) -> str:
+        """按字符预算尽量多地展示样本值。
 
-        序列化策略（吸收 DataGovBench arXiv 2607.06482 的消融结论）：
-        该论文实测在真实政府数据上——
-          · 只加 schema 几乎无增益（0.310 → 0.308）
-          · 多塞样本行反而掉分（0.275），"LLM 在大池子里找不到关键信息"
-          · 按列类型做紧凑统计摘要则大幅提升（+50 分）
-        因此这里对每列按 dtype 给**针对性摘要**而非堆原始行：
-          - 数值列   → min/max/mean + 四分位
-          - 时间列   → range + 自适应粒度分布（原有 _temporal_profile）
-          - 低基数列 → 枚举 unique 值（可直接当分组轴）
-          - 高基数列 → 只给基数 + 少量样本（ID/自由文本，不适合分组）
+        策略：逐个取 unique 值，累加字符数，直到首次超过 budget 为止。
+        单个值超过 _CELL_MAX_CHARS 时截断并标注。
+
+        为什么不用固定条数：短值列（category: 'Software'/'Hardware'…）在同样预算下
+        能把取值全列出来，长文本列（short_description）自动收敛到三四条 ——
+        内容自适应，不必为不同列型写死条数。
+        """
+        vals = series.dropna().unique()
+        if len(vals) == 0:
+            return ""
+
+        parts: list[str] = []
+        used = 0
+        truncated_cell = False
+        for v in vals:
+            s = repr(v)
+            if len(s) > _CELL_MAX_CHARS:
+                s = s[:_CELL_MAX_CHARS] + "…"
+                truncated_cell = True
+            parts.append(s)
+            used += len(s) + 2  # +2 为 ", " 分隔符
+            if used >= budget:
+                break
+
+        text = f"samples: [{', '.join(parts)}]"
+        if len(parts) < len(vals):
+            text += f" ({len(vals)} distinct in total)"
+        if truncated_cell:
+            # 明确告知 agent 值被截断且可自行查询 —— executor 有 SQL/Python 能力，
+            # 这是可执行建议而非空话（v8 正是靠查 short_description 发现关键实体）。
+            text += (
+                " [some values truncated — query this column directly "
+                "(e.g. SELECT ... LIMIT, or keyword frequency analysis) "
+                "if its full content matters]"
+            )
+        return text
+
+    @staticmethod
+    def _sample_budget_for(series: "pd.Series", n_unique: int) -> int:
+        """决定某列的样本展示预算。
+
+        近乎唯一（每行一个值）的列多为 ID / 主键 / 时间戳，其样本高度同构
+        （INC0000000000, INC0000000001, …），列满 500 字符也不增加信息量，
+        只挤占其他列的空间。这类列给一个小预算即可看出格式。
+
+        判据是结构性的（唯一值占行数比例），不涉及任何列名或数据集内容。
+        """
+        if len(series) > 0 and n_unique / len(series) > 0.9:
+            return _ID_LIKE_SAMPLE_BUDGET
+        return _SAMPLE_CHAR_BUDGET
+
+    def _build_schema_text(self, table_name: str, df: pd.DataFrame) -> str:
+        """生成可直接注入 prompt 的表结构描述。
+
+        每列给出：dtype / 基数 / 空值数 + 按字符预算展示的样本值。
+        时间类型的列额外给出 min/max 范围 + 自适应粒度的分布表，让
+        Planner/Executor 从一开始就"看见"整个时间跨度和分布形状，而不是被
+        排序后的前几行样本误导（否则会把模糊的 time window 脑补成数据起始的
+        那个月，或在稀疏的日粒度上做趋势检验）。
+
+        样本值必须保留：agent 靠它判断一列里装的是什么，进而决定要不要深挖。
+        例如 short_description 的样本里出现具体设备名，agent 才会想到对该列做
+        关键词频率分析。schema context 的定位是"导航预览"，细节由 agent 自己
+        用 SQL 查 —— 因此预览宁可有损，但不能没有。
         """
         lines = [f"Table: {table_name} ({len(df)} rows)"]
         lines.append("Columns:")
@@ -162,51 +230,23 @@ class CsvDatabaseBridge:
             dtype = str(s.dtype)
             n_unique = s.nunique()
             n_null = int(s.isnull().sum())
-            lines.append(
-                f"  - {col} ({dtype}, {n_unique} unique, {n_null} nulls)"
+            head = f"  - {col} ({dtype}, {n_unique} unique, {n_null} nulls)"
+
+            samples = self._format_samples(s, self._sample_budget_for(s, n_unique))
+            lines.append(f"{head} — {samples}" if samples else head)
+
+            # 时间列：追加 range + 自适应粒度分布（纯文本，LLM 可读）
+            for tline in self._temporal_profile(s):
+                lines.append(f"      {tline}")
+
+        text = "\n".join(lines)
+        if len(text) > _SCHEMA_TOTAL_BUDGET:
+            text = (
+                text[:_SCHEMA_TOTAL_BUDGET]
+                + f"\n… [schema description truncated at {_SCHEMA_TOTAL_BUDGET} chars; "
+                "use get_tables / retrieve_tables_details to inspect remaining columns]"
             )
-
-            # 时间列：range + 自适应粒度分布
-            temporal = self._temporal_profile(s)
-            if temporal:
-                for tline in temporal:
-                    lines.append(f"      {tline}")
-                continue
-
-            # 数值列：分布摘要而非样本罗列
-            if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
-                nn = s.dropna()
-                if len(nn) > 0:
-                    try:
-                        q1, q2, q3 = nn.quantile([0.25, 0.5, 0.75])
-                        lines.append(
-                            f"      numeric: min={nn.min():g}, q1={q1:g}, median={q2:g}, "
-                            f"q3={q3:g}, max={nn.max():g}, mean={nn.mean():g}"
-                        )
-                    except Exception:
-                        lines.append(f"      numeric: min={nn.min():g}, max={nn.max():g}")
-                continue
-
-            # 低基数列：枚举取值 —— 这类列可直接作为分组轴
-            if 0 < n_unique <= _MAX_ENUM_VALUES:
-                vals = s.dropna().unique().tolist()
-                lines.append(
-                    "      values: [" + ", ".join(repr(v) for v in vals) + "]"
-                )
-            elif n_unique <= _MAX_CATEGORICAL_CARDINALITY:
-                vals = s.dropna().unique()[:_MAX_ENUM_VALUES].tolist()
-                lines.append(
-                    f"      values ({n_unique} total, showing {len(vals)}): ["
-                    + ", ".join(repr(v) for v in vals) + "]"
-                )
-            else:
-                # 高基数（ID / 自由文本）：不适合分组，给少量样本即可
-                vals = s.dropna().unique()[:3].tolist()
-                lines.append(
-                    f"      high-cardinality ({n_unique} distinct) — samples: ["
-                    + ", ".join(repr(v) for v in vals) + "]"
-                )
-        return "\n".join(lines)
+        return text
 
     @staticmethod
     def _pick_grouping_columns(df: pd.DataFrame, max_n: int = 6) -> list[str]:
