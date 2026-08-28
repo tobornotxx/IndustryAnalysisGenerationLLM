@@ -156,19 +156,26 @@ pi 是 **0.x 锁步版本**（`AGENTS.md:129`）：`patch` = 修复+新增，**`
 
 ## 4. 组件迁移对照
 
+> **原则（决策 4）**：只有 `executor` 必须删、`planner` 值得 TS 原生重写。
+> **其余 Python 模块全部包装成 pi 的 tool / skill 复用**，不重写 —— 现有 prompt 调优成果不丢。
+
 | 现有组件 | 处置 | 说明 |
 |---|---|---|
 | `agents/executor.py` | **删除** | 由 pi 的 agent loop 取代（这是迁移的主要动因） |
-| `agents/planner.py` | 重写为 TS | 本质是"填 prompt → 调 LLM → 解析 JSON"，TS 不比 Python 难 |
-| `modules/goal_sufficiency.py` | 重写为 TS | 挂 `shouldStopAfterTurn` |
-| `modules/insight_bank.py` | 重写为 TS | 挂 `transformContext` |
-| `modules/thesis.py` / `report.py` | 重写为 TS | 调 `models.streamSimple`（非 agentic 步骤） |
-| `modules/consistency.py` | 重写为 TS | 同上 |
-| `modules/statistics.py` | 移入 Python worker | 统计计算留在 Python |
-| `csv_db_bridge.py` | **保留逻辑，改造成 worker** | schema 生成 + 预算机制 + 时间画像原样保留 |
-| `unified_scorer.py` | **完全不动** | 离线评测工具，继续 Python |
+| `agents/planner.py` | **重写为 TS** | 核心链路，值得原生化；prompt 模板 Jinja2 → TS 模板字符串 |
+| `csv_db_bridge.py` | **改造成常驻 worker** | schema 生成 + 预算机制 + 时间画像原样保留；暴露为 `runSql` / `runPython` tool |
+| `modules/goal_sufficiency.py` | **包装成 tool** | 挂 `shouldStopAfterTurn` |
+| `modules/insight_bank.py` | **包装成 tool** | 或挂 `transformContext` |
+| `modules/thesis.py` | **包装成 tool** | 内部仍是 Python 调 LLM |
+| `modules/report.py` | **包装成 tool** | 同上 |
+| `modules/consistency.py` | **包装成 tool** | 同上 |
+| `modules/statistics.py` | **包装成 skill 脚本** | 统计计算留 Python |
+| `unified_scorer.py` | **完全不动** | 离线评测工具 |
 | `run_benchmark.py` | 改造 | 外层 case 级并行调度保留，内部改为调 TS agent |
 | `skills/skill_package_v9.json` | **推翻重做** | 改为 `skills/<name>/SKILL.md` + `scripts/`（见 §5） |
+
+⚠️ **包装成 tool 的模块内部自己调 LLM，不走 pi 的 model 层**，因此 pi 的 usage 统计
+不含它们 —— §2.5 的 Python 侧记账必须保留，否则又会出现"token 花在哪不知道"的情况。
 
 ---
 
@@ -237,31 +244,100 @@ skills/trend-per-group/
 
 ## 7. 实施步骤
 
+分支：`pi-migration`（两个 repo 均已建），`main` 保持可回退。
+
 | # | 内容 | 验证方式 | 花钱 |
 |---|---|---|---|
 | 1 | pi 装起来，用**真实 DeepSeek key** 跑通最小 agent（一个 echo tool） | 看到正确响应 | 少量 |
 | 2 | Python worker：`load_csv`/`sql`/`py`，搬 `csv_db_bridge` 的 schema 生成 + 预算机制 | schema 输出与现有逐字对比，`Printer546` 在 | 否 |
-| 3 | `runPython` tool 包装 worker；**定 worker 并发方案** | 并发调用不串数据 | 少量 |
+| 3 | `runSql`/`runPython` tool 包装 worker；**实现 worker 池 + 共享 DB 文件** | 并发调用不串数据；内存符合 §8 估算 | 少量 |
 | 4 | planner 重写 TS；跑单 case 端到端出 insights | 与现有 pipeline 输出对比 | 中 |
-| 5 | 挂 `shouldStopAfterTurn`（goal-sufficiency）+ `transformContext`（insight 去重） | 早停行为与现有一致 | 中 |
+| 5 | 把 goal_sufficiency / insight_bank / thesis / report / consistency **包装成 tool**；挂 `shouldStopAfterTurn` + `transformContext` | 早停与去重行为和现有一致 | 中 |
 | 6 | 接 `unified_scorer.py` 评分 | 单 case 三指标与 v10 对比 | 中 |
 | 7 | 写 1-2 个 SKILL.md + scripts，验证脚本被执行 | 日志见脚本 stdout | 少量 |
-| 8 | 多 case 回归，重建基线 | 5-10 case 均值+方差 | **主要成本** |
+| 8 | **5 个 case** 回归，重建基线 | 均值 + 方差 | **主要成本** |
 
-**步骤 2 不花钱**，步骤 1/3/7 花很少。**步骤 8 是主要开销**。
+**步骤 2 不花钱**，步骤 1/3/7 花很少。**步骤 8 是主要开销。**
 
-⚠️ **样本量提醒**：已知 flag-1 历史极差 **0.63**、flag-3 仅 **0.03** —— **case 间差异远大于版本间差异**。单 case 对比无意义，回归至少 5-10 个 case 看均值和方差。这是之前反复踩的坑。
+⚠️ **样本量提醒**：已知 flag-1 历史极差 **0.63**、flag-3 仅 **0.03** —— **case 间差异远大于版本间差异**。
+5 个 case 只够看趋势和量级，**不足以判断 0.03 量级的差异**。任何"变好/变差"的结论都要带上这个限制。
+（另：上次 10 case 跑了 39 分钟就把 API 余额烧完，5 个是成本上的现实选择。）
 
 ---
 
-## 8. 待确认
+## 8. 已确认决策（2026-08-25）
 
-1. **Python worker 并发方案**：worker 池（N 进程，简单但内存 ×N）vs worker 内线程（省内存但 SQLite 并发要小心）?
-2. **迁移策略**：新建独立目录并行开发（可随时回退，但要维护两套）vs 原地改造?
-3. **现有 Python 模块的重写顺序**：先 planner（核心）还是先把所有非 agentic 模块（thesis/report/consistency）批量搬?
-4. **skill 提取 agent 用什么写**：TS（和 harness 同栈）vs Python（复用现有 `result.json` 分析代码）?
-   —— 我倾向 Python：它是**离线工具**，不参与 agent 运行，且要读大量现有 `result.json` / `score_matrix`。
-5. **回归 case 数**：5 还是 10?直接决定步骤 8 的成本。
+| # | 决策 | 结论 |
+|---|---|---|
+| 1 | **Python worker 并发** | **worker 池（N 个独立进程）**。见下方内存实测。 |
+| 2 | **迁移策略** | **git 分支 `pi-migration`**（两个 repo 均已建），`main` 保持可回退 |
+| 3 | **重写顺序** | **先 planner**（核心链路），尽早暴露集成问题 |
+| 4 | **agent 主体全部用 pi** | 现有 Python 模块**包装成 tool / skill 提供给 agent**，从而复用而非重写 |
+| 5 | **回归 case 数** | **5** |
+
+### 决策 1 的依据：worker 内存实测
+
+本机 16 GB。实测单 worker（InsightBench flag-1，500 行）：
+
+| 组成 | 内存 |
+|---|---|
+| Python 解释器裸启动 | 92 MB |
+| + 全部数据科学库（pandas/numpy/scipy/sklearn/statsmodels/duckdb…） | 202 MB（+110） |
+| + CSV 载入 SQLite | 205 MB（+3） |
+
+| worker 数 | InsightBench |
+|---|---|
+| 2 | 410 MB |
+| **4** | **820 MB** ✅ 无压力 |
+| 8 | 1.6 GB |
+
+**关键观察**：小表场景下，内存开销主要是**库的重复加载（202 MB）**，数据本身只占 3 MB。所以 worker 池在训练阶段很便宜。
+
+⚠️ **但外推到 DataGovBench（21 万行 × 18 列 × 5 表）会爆**：
+
+| worker 数 | DataGovBench 估算 |
+|---|---|
+| 1 | 6.5 GB |
+| 2 | 12.7 GB |
+| 4 | **25.4 GB** ❌ 超 16 GB 物理内存 |
+
+**对策（迁移时必须实现）**：worker 之间**共享 SQLite 文件**，而非各自 in-memory 副本。
+现有 `CsvDatabaseBridge` 本就用 `tempfile.mkstemp(suffix=".db")` 而非 `:memory:`，
+所以数据只存一份磁盘文件，每个 worker 只付库的 202 MB：
+
+| worker 数 | DataGovBench（共享 DB 文件） |
+|---|---|
+| 4 | 202×4 + 6.3 GB（共享） ≈ **7.1 GB** ✅ |
+
+→ **worker 池在训练阶段满配，迁移到大数据集时靠共享 DB 文件控制内存。**
+
+### 决策 4 的落地方式（重要，简化了 §4 的工作量）
+
+你的原话：*"agent 主体都用 pi，你这些东西本身包装一下提供给 agent 不就行了吗，一样可以复用。"*
+
+这改变了迁移策略 —— **不是把 Python 模块重写成 TS，而是把它们包装成 pi 的 tool / skill**：
+
+| 现有 Python 模块 | 之前的计划 | **改为** |
+|---|---|---|
+| `csv_db_bridge` | 改造成 worker | worker + `runSql`/`runPython` tool |
+| `modules/statistics.py` | 移入 worker | 包装成 skill 脚本 |
+| `modules/thesis.py` | 重写 TS | **包装成 tool**（内部仍是 Python 调 LLM） |
+| `modules/report.py` | 重写 TS | **包装成 tool** |
+| `modules/consistency.py` | 重写 TS | **包装成 tool** |
+| `modules/insight_bank.py` | 重写 TS | **包装成 tool**，或挂 `transformContext` |
+| `modules/goal_sufficiency.py` | 重写 TS | **包装成 tool**，挂 `shouldStopAfterTurn` |
+| `agents/planner.py` | 重写 TS | **先 TS 重写**（决策 3：它是核心链路，值得原生化） |
+| `agents/executor.py` | 删除 | **删除**（由 pi 的 loop 取代 —— 这是迁移主因） |
+
+**只有 executor 必须删、planner 值得原生重写。其余全部包装复用。**
+
+好处：
+- 工作量大幅下降，且现有逻辑（含所有 prompt 调优成果）不丢
+- 每个模块作为独立 tool，pi 的重试/错误恢复自动覆盖它们
+- 符合 §5 的 skill 理念：**能力 = 可执行代码 + 描述**
+
+代价：这些 tool 内部自己调 LLM（不走 pi 的 model 层），所以 pi 的 usage 统计
+不包含它们 —— **§2.5 的 Python 侧记账必须保留**。
 
 ---
 
