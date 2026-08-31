@@ -275,41 +275,56 @@ skills/trend-per-group/
 | 4 | **agent 主体全部用 pi** | 现有 Python 模块**包装成 tool / skill 提供给 agent**，从而复用而非重写 |
 | 5 | **回归 case 数** | **5** |
 
-### 决策 1 的依据：worker 内存实测
+### 决策 1 的依据：worker 内存
 
-本机 16 GB。实测单 worker（InsightBench flag-1，500 行）：
+本机 16 GB。
 
-| 组成 | 内存 |
+**初次估算**（仅 import 主要几个库）：单 worker 205 MB —— 库 202 MB + 500 行数据 3 MB。
+
+**实测修正（2026-08-25，4-worker 池，已 warmup）**：
+
+```
+4 workers RSS: 365MB, 364MB, 365MB, 363MB  →  总计 1458 MB
+```
+
+**单 worker 实际 365 MB，比估算高 78%。** 差异来源：`execute_python_from_sql` 的沙箱会
+预注入**全部**数据科学包（numpy/pandas/scipy/sklearn/statsmodels/sympy/networkx/
+xgboost/lightgbm/polars/duckdb/lifelines/pingouin/ruptures/category_encoders/imblearn
++ matplotlib/seaborn），远多于估算脚本里 import 的那几个。
+
+| worker 数 | InsightBench（实测/外推） |
 |---|---|
-| Python 解释器裸启动 | 92 MB |
-| + 全部数据科学库（pandas/numpy/scipy/sklearn/statsmodels/duckdb…） | 202 MB（+110） |
-| + CSV 载入 SQLite | 205 MB（+3） |
+| 2 | ~730 MB |
+| **4** | **1458 MB（实测）** ✅ 16 GB 下无压力 |
+| 8 | ~2.9 GB |
 
-| worker 数 | InsightBench |
-|---|---|
-| 2 | 410 MB |
-| **4** | **820 MB** ✅ 无压力 |
-| 8 | 1.6 GB |
+⚠️ **外推 DataGovBench（21 万行 × 18 列 × 5 表）须按 365 MB 修正**：
 
-**关键观察**：小表场景下，内存开销主要是**库的重复加载（202 MB）**，数据本身只占 3 MB。所以 worker 池在训练阶段很便宜。
-
-⚠️ **但外推到 DataGovBench（21 万行 × 18 列 × 5 表）会爆**：
-
-| worker 数 | DataGovBench 估算 |
-|---|---|
-| 1 | 6.5 GB |
-| 2 | 12.7 GB |
-| 4 | **25.4 GB** ❌ 超 16 GB 物理内存 |
+| worker 数 | 各自 in-memory 副本 | 共享 SQLite 文件 |
+|---|---|---|
+| 1 | ~6.7 GB | ~6.7 GB |
+| 4 | **~26.8 GB** ❌ 超 16 GB | **~7.7 GB**（365×4 + 6.3 GB 共享）✅ |
 
 **对策（迁移时必须实现）**：worker 之间**共享 SQLite 文件**，而非各自 in-memory 副本。
 现有 `CsvDatabaseBridge` 本就用 `tempfile.mkstemp(suffix=".db")` 而非 `:memory:`，
-所以数据只存一份磁盘文件，每个 worker 只付库的 202 MB：
+但**当前 `loadAll()` 让每个 worker 各建一个临时 DB** —— 大数据集下必须改成传入同一
+DB 路径共享。小数据集（InsightBench）无需改。
 
-| worker 数 | DataGovBench（共享 DB 文件） |
-|---|---|
-| 4 | 202×4 + 6.3 GB（共享） ≈ **7.1 GB** ✅ |
+### 并发实测（决策 1 得到验证）
 
-→ **worker 池在训练阶段满配，迁移到大数据集时靠共享 DB 文件控制内存。**
+单 worker 的行分隔 JSON 协议是**串行**的，因此池是必需的：
+
+| 负载 | 单 worker | 4-worker 池（冷） | 4-worker 池（已 warmup） |
+|---|---|---|---|
+| 3 × 1 秒任务并发 | 7.26 s | 5.52 s | **1.01 s** ✅ 真并行 |
+| 4 × 空操作并发 | — | — | 0.001 s |
+| 8 × SQL 并发 | — | — | 0.003 s |
+| 6 × 1 秒任务（超池大小） | — | 4.92 s | 分两批 |
+
+**关键：必须 warmup。** 沙箱首次调用要为预注入那一大堆包付约 1 秒/worker
+（实测池整体 warmup 4.03 s）。不预热则「3 个 1 秒任务」要 5.5 s ——
+每个 worker 各自摊 import 成本。`PyWorkerPool.warmup()` 把这笔一次性开销
+挪到池初始化阶段。
 
 ### 决策 4 的落地方式（重要，简化了 §4 的工作量）
 
