@@ -127,12 +127,46 @@ export class PyWorkerPool {
     await Promise.all(this.#workers.map((w) => w.ready));
   }
 
-  /** 所有 worker 载入同一数据集；返回第一个 worker 的 schema（各 worker 一致）。 */
-  async loadAll(args) {
-    const results = await Promise.all(
-      this.#workers.map((w) => w.call("load_csv", args)),
-    );
-    return results[0];
+  /**
+   * 所有 worker 载入同一数据集。
+   *
+   * 两种模式（实测 21 万行 × 18 列，4 workers）：
+   *
+   * | 模式          | 内存    | load 耗时 | 适用 |
+   * |---------------|---------|-----------|------|
+   * | shared (默认) | 1634 MB | 15.2 s    | 大数据集 |
+   * | isolated      | 2143 MB |  9.2 s    | 小数据集 |
+   *
+   * shared 两阶段：worker[0] 建库写数据并返回 db_path；其余 worker 以
+   * (db_path, reuse_db=true) 只连接、并只读 5000 行样本生成 schema。
+   * 实测 RSS 分布 517+370+372+374 —— 只有建库那个付全额，其余是纯库开销。
+   *
+   * 为什么内存差在这里：SQLite 文件在磁盘、**不占 RSS**（21 万行的库只有 41 MB）；
+   * 真正吃内存的是 `pd.read_csv` 的 DataFrame（约 192 MB）。所以省内存的关键
+   * 不是"共享表数据"，而是"让多余的 worker 不必把全表读进 DataFrame"。
+   *
+   * 代价：shared 是串行的（要等 worker[0] 建完库），而 isolated 下 4 个 worker
+   * 并行读 CSV。小数据集（InsightBench 500 行）两者内存几乎无差（1457 vs 1458 MB），
+   * 此时 isolated 更快。
+   */
+  async loadAll(args, { mode = "shared" } = {}) {
+    if (mode === "isolated" || this.#workers.length === 1) {
+      const results = await Promise.all(
+        this.#workers.map((w) => w.call("load_csv", args)),
+      );
+      return results[0];
+    }
+
+    const [primary, ...rest] = this.#workers;
+    const first = await primary.call("load_csv", args);
+    if (rest.length) {
+      await Promise.all(
+        rest.map((w) =>
+          w.call("load_csv", { ...args, db_path: first.db_path, reuse_db: true }),
+        ),
+      );
+    }
+    return first;
   }
 
   /**

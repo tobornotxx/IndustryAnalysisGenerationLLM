@@ -51,19 +51,29 @@ class Worker:
     # ------------------------------------------------------------------
 
     def op_load_csv(self, csv_path: str, table_name: str = "main_table",
-                    user_csv_path: str | None = None) -> dict:
-        """载入 CSV 到 SQLite，返回可注入 prompt 的 schema 上下文。"""
+                    user_csv_path: str | None = None,
+                    db_path: str | None = None,
+                    reuse_db: bool = False) -> dict:
+        """载入 CSV 到 SQLite，返回可注入 prompt 的 schema 上下文。
+
+        共享 DB（内存优化）：池里第一个 worker 正常建库并返回 db_path；
+        其余 worker 用 (db_path=<那个路径>, reuse_db=True) 只连接不重写数据。
+        这样 N 个 worker 只存一份表数据，而不是各持一份完整副本。
+        """
         if self._bridge is not None:
             self._bridge.close()
         self._bridge = CsvDatabaseBridge(
             csv_path=csv_path,
             table_name=table_name,
             user_csv_path=user_csv_path,
+            db_path=db_path,
+            reuse_db=reuse_db,
         )
         return {
             "schema_context": self._bridge.get_schema_context(),
             "tables": self._bridge.get_tables(),
             "grouping_columns": list(getattr(self._bridge, "_grouping_columns", [])),
+            "db_path": self._bridge.db_path,
         }
 
     def op_sql(self, sql: str, max_rows: int = 50) -> dict:

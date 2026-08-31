@@ -305,10 +305,43 @@ xgboost/lightgbm/polars/duckdb/lifelines/pingouin/ruptures/category_encoders/imb
 | 1 | ~6.7 GB | ~6.7 GB |
 | 4 | **~26.8 GB** ❌ 超 16 GB | **~7.7 GB**（365×4 + 6.3 GB 共享）✅ |
 
-**对策（迁移时必须实现）**：worker 之间**共享 SQLite 文件**，而非各自 in-memory 副本。
-现有 `CsvDatabaseBridge` 本就用 `tempfile.mkstemp(suffix=".db")` 而非 `:memory:`，
-但**当前 `loadAll()` 让每个 worker 各建一个临时 DB** —— 大数据集下必须改成传入同一
-DB 路径共享。小数据集（InsightBench）无需改。
+### 内存优化已实施（2026-08-25，实测修正了上面的分析）
+
+用 21 万行 × 18 列的合成表（65 MB CSV，DataGovBench 量级）实测，**发现上面
+"共享表数据省内存"的推理是错的**：
+
+| 组成 | 内存 |
+|---|---|
+| 库加载 | 203 MB |
+| **+ `pd.read_csv` 的 DataFrame** | **395 MB（+192）** ← 真正的大头 |
+| + `to_sql` | 524 MB |
+| SQLite 文件 | **41 MB，在磁盘，不占 RSS** |
+| 只连接共享库、不 `read_csv` | **206 MB** ≈ 纯库开销 |
+
+**SQLite 数据本来就不占内存。** 省内存的关键不是"共享表数据"，而是
+**"让多余的 worker 不必把全表读进 DataFrame"**。
+
+因此实现是：`reuse_db=True` 的 worker 只读 `_SCHEMA_SAMPLE_ROWS`（5000）行
+生成 schema，**基数与行数改从 SQLite 现算**（`_exact_cardinalities` /
+`_row_count`）—— 否则 5000 行样本会把 21 万基数的列误报成低基数，进而被错选为
+分组轴，误导 agent。已验证 18 列基数、行数、分组列与全量读取**完全一致**。
+
+**实测效果（4 workers，21 万行）**：
+
+| 模式 | RSS 分布 | 总计 | load 耗时 |
+|---|---|---|---|
+| `isolated`（各自副本） | 527+525+545+546 | 2143 MB | 9.2 s |
+| **`shared`（默认）** | **517+370+372+374** | **1634 MB（−24%）** | 15.2 s |
+
+RSS 分布很直观：只有建库的 worker[0] 付全额，其余三个只有 370 MB（纯库开销）。
+
+**代价：`shared` 是串行的**（要等 worker[0] 建完库其余才能连），`isolated` 下
+4 个 worker 并行读 CSV。故 `loadAll(args, { mode })` 可切换：
+- 小数据集（InsightBench 500 行）：两者内存几乎无差（1457 vs 1458 MB），`isolated` 更快
+- 大数据集：`shared` 省 24% 内存
+
+向后兼容：`CsvDatabaseBridge` 新增的 `db_path` / `reuse_db` 均有默认值，
+不传时行为与原来完全一致（已回归验证 schema 4731 chars、`Printer546` 在）。
 
 ### 并发实测（决策 1 得到验证）
 

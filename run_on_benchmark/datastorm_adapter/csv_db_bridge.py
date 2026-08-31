@@ -59,6 +59,11 @@ _SCHEMA_TOTAL_BUDGET = 40000
 # 近乎唯一的列（ID / 主键 / 时间戳）的样本预算。这类列样本高度同构，
 # 列满预算不增信息量，只挤占其他列空间。
 _ID_LIKE_SAMPLE_BUDGET = 120
+# reuse_db 模式下为生成 schema 而读取的行数上限。
+# 实测 21 万行 × 18 列的 DataFrame 占约 192 MB，而落盘的 SQLite 文件仅 41 MB
+# 且**不占 RSS** —— worker 的内存大头是 DataFrame，不是表数据。共享库的 worker
+# 无需全表在内存，只取样本推断列类型/取值样本；基数与行数改从 SQLite 现算。
+_SCHEMA_SAMPLE_ROWS = 5000
 
 
 def _period_alias(resample_rule: str) -> str:
@@ -95,19 +100,71 @@ class CsvDatabaseBridge:
         table_name: str = "main_table",
         user_csv_path: str | None = None,
         user_table_name: str = "user_table",
+        db_path: str | None = None,
+        reuse_db: bool = False,
     ) -> None:
+        """
+        Args:
+            db_path: 显式指定 SQLite 文件路径。多个 bridge 实例（如 worker 池里的
+                各个进程）传同一路径即可共享一份数据，避免每个实例都持有完整副本。
+                不传则各自 mkstemp 建独立临时库（原行为）。
+            reuse_db: 为 True 时假定 db_path 已由别人建好并写入数据，只连接、
+                不再 to_sql 重写。仍会读一次 CSV 以生成 schema 描述与分组列
+                （这部分是纯计算，不占 DB 空间）。
+        """
         self._csv_path = csv_path
         self._table_name = table_name
         self._user_csv_path = user_csv_path
         self._user_table_name = user_table_name
+        self._reuse_db = reuse_db
 
-        # 使用临时文件存储 SQLite DB（避免多进程冲突）
-        self._db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
-        os.close(self._db_fd)
+        if db_path:
+            self._db_path = db_path
+            # 共享库由调用方管理生命周期，不能在 close() 里删掉
+            self._owns_db = not reuse_db
+        else:
+            # 使用临时文件存储 SQLite DB（避免多进程冲突）
+            self._db_fd, self._db_path = tempfile.mkstemp(suffix=".db")
+            os.close(self._db_fd)
+            self._owns_db = True
 
         self._conn: sqlite3.Connection | None = None
         self._table_descriptions: dict[str, str] = {}
         self._load_csvs()
+
+    @property
+    def db_path(self) -> str:
+        """SQLite 文件路径。供 worker 池把该路径分发给其余 worker 共享。"""
+        return self._db_path
+
+    def _read_for_schema(self, path: str) -> pd.DataFrame:
+        """读 CSV 用于生成 schema 描述。
+
+        内存要点（实测 21 万行 × 18 列）：
+            pd.read_csv 的 DataFrame 占约 192 MB，而落盘后的 SQLite 文件只有
+            41 MB 且**不占 RSS**。也就是说 worker 的内存大头是 DataFrame，
+            不是表数据本身。
+
+        因此 reuse_db 模式（数据已由别的 worker 写好）下只读 _SCHEMA_SAMPLE_ROWS
+        行来推断列类型/取值样本，不把全表拉进内存 —— 这是 worker 池的内存优化
+        实际生效的地方。
+
+        代价：样本行数有限，基数统计（nunique）与时间跨度会失真。故 reuse 模式
+        下这些字段改从 SQLite 现算（见 _build_schema_text / _row_count）。
+        """
+        if self._reuse_db:
+            return pd.read_csv(path, nrows=_SCHEMA_SAMPLE_ROWS)
+        return pd.read_csv(path)
+
+    def _row_count(self, table_name: str, df: pd.DataFrame) -> int:
+        """表行数。reuse 模式下 df 只是样本，须从 SQLite 现算。"""
+        if not self._reuse_db:
+            return len(df)
+        try:
+            row = self._conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
+            return int(row[0]) if row else len(df)
+        except Exception:
+            return len(df)
 
     # ------------------------------------------------------------------
     # 内部：加载 CSV 到 SQLite
@@ -119,28 +176,42 @@ class CsvDatabaseBridge:
         # 适合做分组轴的分类列（跨所有表汇总），供 skill 引导渲染用
         self._grouping_columns: list[str] = []
 
-        df = pd.read_csv(self._csv_path)
-        df.to_sql(self._table_name, self._conn, if_exists="replace", index=False)
+        df = self._read_for_schema(self._csv_path)
+        if not self._reuse_db:
+            df.to_sql(self._table_name, self._conn, if_exists="replace", index=False)
         self._table_descriptions[self._table_name] = (
             f"Main dataset loaded from {os.path.basename(self._csv_path)} "
-            f"({len(df)} rows, {len(df.columns)} columns)"
+            f"({self._row_count(self._table_name, df)} rows, {len(df.columns)} columns)"
         )
         self._schema_cache = self._build_schema_text(self._table_name, df)
-        self._grouping_columns.extend(self._pick_grouping_columns(df))
+        self._grouping_columns.extend(
+            self._pick_grouping_columns(
+                df,
+                exact=self._exact_cardinalities(self._table_name, df.columns)
+                if self._reuse_db else None,
+            )
+        )
+        # DataFrame 只用于生成 schema 描述；及早释放，避免每个 worker 常驻一份
+        del df
         logger.info(
-            "Loaded CSV '%s' → table '%s' (%d rows)",
-            self._csv_path, self._table_name, len(df),
+            "Loaded CSV '%s' → table '%s' (db=%s, reuse=%s)",
+            self._csv_path, self._table_name, self._db_path, self._reuse_db,
         )
 
         if self._user_csv_path and os.path.exists(self._user_csv_path):
-            df_user = pd.read_csv(self._user_csv_path)
-            df_user.to_sql(self._user_table_name, self._conn, if_exists="replace", index=False)
+            df_user = self._read_for_schema(self._user_csv_path)
+            if not self._reuse_db:
+                df_user.to_sql(self._user_table_name, self._conn, if_exists="replace", index=False)
             self._table_descriptions[self._user_table_name] = (
                 f"User dataset loaded from {os.path.basename(self._user_csv_path)} "
                 f"({len(df_user)} rows, {len(df_user.columns)} columns)"
             )
             self._schema_cache += "\n\n" + self._build_schema_text(self._user_table_name, df_user)
-            for c in self._pick_grouping_columns(df_user):
+            _exact_user = (
+                self._exact_cardinalities(self._user_table_name, df_user.columns)
+                if self._reuse_db else None
+            )
+            for c in self._pick_grouping_columns(df_user, exact=_exact_user):
                 if c not in self._grouping_columns:
                     self._grouping_columns.append(c)
             logger.info(
@@ -196,7 +267,7 @@ class CsvDatabaseBridge:
         return text
 
     @staticmethod
-    def _sample_budget_for(series: "pd.Series", n_unique: int) -> int:
+    def _sample_budget_for(series: "pd.Series", n_unique: int, n_rows: int | None = None) -> int:
         """决定某列的样本展示预算。
 
         近乎唯一（每行一个值）的列多为 ID / 主键 / 时间戳，其样本高度同构
@@ -204,10 +275,33 @@ class CsvDatabaseBridge:
         只挤占其他列的空间。这类列给一个小预算即可看出格式。
 
         判据是结构性的（唯一值占行数比例），不涉及任何列名或数据集内容。
+        n_rows 显式传入是为了支持 reuse_db 模式 —— 那时 series 只是样本，
+        len(series) 不等于真实行数。
         """
-        if len(series) > 0 and n_unique / len(series) > 0.9:
+        total = n_rows if n_rows is not None else len(series)
+        if total > 0 and n_unique / total > 0.9:
             return _ID_LIKE_SAMPLE_BUDGET
         return _SAMPLE_CHAR_BUDGET
+
+    def _exact_cardinalities(self, table_name: str, columns) -> dict[str, int]:
+        """从 SQLite 现算各列精确基数（reuse_db 模式用）。
+
+        样本行推断出的 nunique 会显著低估 —— 5000 行样本里一个 21 万行表的
+        高基数列可能只出现 5000 个不同值，被误判成可分组的低基数列。
+        """
+        out: dict[str, int] = {}
+        if self._conn is None:
+            return out
+        for col in columns:
+            try:
+                row = self._conn.execute(
+                    f'SELECT COUNT(DISTINCT "{col}") FROM "{table_name}"'
+                ).fetchone()
+                if row:
+                    out[col] = int(row[0])
+            except Exception:
+                continue
+        return out
 
     def _build_schema_text(self, table_name: str, df: pd.DataFrame) -> str:
         """生成可直接注入 prompt 的表结构描述。
@@ -223,16 +317,22 @@ class CsvDatabaseBridge:
         关键词频率分析。schema context 的定位是"导航预览"，细节由 agent 自己
         用 SQL 查 —— 因此预览宁可有损，但不能没有。
         """
-        lines = [f"Table: {table_name} ({len(df)} rows)"]
+        n_rows = self._row_count(table_name, df)
+        lines = [f"Table: {table_name} ({n_rows} rows)"]
         lines.append("Columns:")
+        # reuse 模式下 df 只是样本，基数须从 SQLite 现算，否则会把高基数列
+        # 误报成低基数（进而被当成分组轴），误导 agent。
+        exact = self._exact_cardinalities(table_name, df.columns) if self._reuse_db else {}
         for col in df.columns:
             s = df[col]
             dtype = str(s.dtype)
-            n_unique = s.nunique()
+            n_unique = exact.get(col, s.nunique())
             n_null = int(s.isnull().sum())
             head = f"  - {col} ({dtype}, {n_unique} unique, {n_null} nulls)"
 
-            samples = self._format_samples(s, self._sample_budget_for(s, n_unique))
+            samples = self._format_samples(
+                s, self._sample_budget_for(s, n_unique, n_rows)
+            )
             lines.append(f"{head} — {samples}" if samples else head)
 
             # 时间列：追加 range + 自适应粒度分布（纯文本，LLM 可读）
@@ -249,7 +349,9 @@ class CsvDatabaseBridge:
         return text
 
     @staticmethod
-    def _pick_grouping_columns(df: pd.DataFrame, max_n: int = 6) -> list[str]:
+    def _pick_grouping_columns(
+        df: pd.DataFrame, max_n: int = 6, exact: dict[str, int] | None = None
+    ) -> list[str]:
         """挑出适合做分组轴的低基数分类列（数据无关的启发式）。
 
         规则：非数值、非时间、基数在 2.._MAX_CATEGORICAL_CARDINALITY 之间。
@@ -259,6 +361,9 @@ class CsvDatabaseBridge:
         业务维度列。改为按「离理想基数的距离」排序：基数太低信息量不足，
         太高不适合分组，中间段最有解释力。理想值 _IDEAL_CARDINALITY 是
         纯结构参数，不依赖任何数据集的具体列。
+
+        exact: reuse_db 模式下从 SQLite 现算的精确基数。样本推断会低估基数，
+        导致高基数列被误选为分组轴。
 
         这些列名会注入 skill 引导，取代 v8 里硬编码的 ServiceNow 字段名。
         """
@@ -272,7 +377,7 @@ class CsvDatabaseBridge:
             # object 列里的时间列（bridge 用文本存日期）也要排除
             if CsvDatabaseBridge._temporal_profile(s):
                 continue
-            n_unique = s.nunique()
+            n_unique = (exact or {}).get(col, s.nunique())
             if 2 <= n_unique <= _MAX_CATEGORICAL_CARDINALITY:
                 # 距理想基数越近越优先；同距时基数大的略优（信息量更足）
                 candidates.append((abs(n_unique - _IDEAL_CARDINALITY), -n_unique, col))
@@ -384,10 +489,16 @@ class CsvDatabaseBridge:
         pass
 
     def close(self) -> None:
-        """关闭 SQLite 连接并清理临时文件。"""
+        """关闭 SQLite 连接；仅当本实例拥有该 DB 文件时才删除它。
+
+        共享库场景（worker 池多个实例连同一个文件）下，非 owner 删掉文件会
+        让其他仍在使用的实例失效，所以按 _owns_db 判断。
+        """
         if self._conn:
             self._conn.close()
             self._conn = None
+        if not self._owns_db:
+            return
         try:
             os.unlink(self._db_path)
         except OSError:
