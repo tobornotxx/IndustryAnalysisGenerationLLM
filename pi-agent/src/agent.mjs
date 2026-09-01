@@ -16,6 +16,19 @@ import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { Type } from "@sinclair/typebox";
 import { PyWorkerPool } from "./py-worker.mjs";
 import { Planner } from "./planner.mjs";
+import {
+  filterInsights,
+  generateThesis,
+  refineThesis,
+  evaluateSufficiency,
+  generateSummary,
+} from "./modules.mjs";
+import {
+  SkillPackage,
+  describeCategoricalColumns,
+  EXECUTOR_SKILL_IDS,
+  SUFFICIENCY_SKILL_IDS,
+} from "./skills.mjs";
 
 /**
  * 累计 token 用量与成本。
@@ -106,6 +119,26 @@ export function makeGenerateJson({ models, model, usage }) {
       .map((c) => c.text)
       .join("");
     return parseJsonLoose(text);
+  };
+}
+
+/** 直接向模型要一段纯文本（summary 等），不走 agent loop。 */
+export function makeGenerateText({ models, model, usage }) {
+  return async function generateText(prompt, { temperature = 0.3 } = {}) {
+    const stream = models.streamSimple(
+      model,
+      { messages: [{ role: "user", content: [{ type: "text", text: prompt }] }] },
+      { temperature },
+    );
+    let final = null;
+    for await (const ev of stream) {
+      if (ev.type === "done" || ev.type === "error") final = ev.message;
+    }
+    usage?.record(final?.usage);
+    return (final?.content ?? [])
+      .filter((c) => c.type === "text")
+      .map((c) => c.text)
+      .join("");
   };
 }
 
@@ -237,10 +270,14 @@ export async function answerQuestion({
 /**
  * 跑完一个数据集的分层探索。
  *
- * 与旧 pipeline 的对应：
- *   Layer 1        → planner.generateInitialQuestions
- *   Layer 2..m     → planner.generateTreeBasedQuestions（带问题树）
- *   每层内并发执行 → worker 池 + pi agent 并发
+ * 与原 pipeline（MyDataStorm ExplorationFramework）的对应：
+ *   Layer 1          → planner.generateInitialQuestions
+ *   Layer 2..m       → planner.generateTreeBasedQuestions（问题树 + thesis + 缺口引导）
+ *   每层内并发执行   → worker 池 + pi agent 并发
+ *   每层后           → insight_bank 去重择优
+ *   每 p 层          → thesis 生成/精炼
+ *   min_layers 之后  → goal_sufficiency 自评，够了就早停
+ *   结束             → summary（自一致性合并）
  */
 export async function explore({
   csvPath,
@@ -254,17 +291,22 @@ export async function explore({
   pythonBin,
   workerScript,
   loadMode = "isolated",
+  // ── 与原 pipeline 对齐的开关 ──
+  useSkills = true,
+  goalSufficiencyCheck = true,
+  goalSufficiencyMinLayers = 2,
+  thesisInterval = 1,
+  maxInsights = 12,
+  summarySamples = 3,
   onLog = () => {},
 }) {
   const usage = new UsageTracker();
   const deepseek = createDeepSeek({ model });
   const generateJson = makeGenerateJson({ ...deepseek, usage });
+  const generateText = makeGenerateText({ ...deepseek, usage });
+  const skillPkg = useSkills ? SkillPackage.load() : new SkillPackage(null);
 
-  const pool = new PyWorkerPool({
-    python: pythonBin,
-    workerScript,
-    size: poolSize,
-  });
+  const pool = new PyWorkerPool({ python: pythonBin, workerScript, size: poolSize });
   await pool.ready();
 
   try {
@@ -273,11 +315,29 @@ export async function explore({
       { mode: loadMode },
     );
     await pool.warmup();
-    const schemaContext = loaded.schema_context;
+
+    // skill 引导：列名在运行时从真实 schema 填充，不硬编码任何字段名
+    const catCols = describeCategoricalColumns(loaded.grouping_columns);
+    const executorGuidance = skillPkg.renderGuidance(EXECUTOR_SKILL_IDS, {
+      categoricalColumns: catCols,
+    });
+    const sufficiencyGuidance = skillPkg.renderGuidance(SUFFICIENCY_SKILL_IDS, {
+      header: "COVERAGE AUDIT RULES",
+      categoricalColumns: catCols,
+    });
+    const schemaContext = loaded.schema_context + executorGuidance;
+
     onLog(
-      `dataset loaded: ${schemaContext.length} chars schema, ` +
+      `dataset loaded: schema ${loaded.schema_context.length} chars` +
+        `${executorGuidance ? ` + ${executorGuidance.length} chars skill guidance` : ""}, ` +
         `grouping=[${loaded.grouping_columns.slice(0, 4).join(", ")}]`,
     );
+    if (useSkills) {
+      onLog(
+        `skills: ${skillPkg.meta.version ?? "?"} ` +
+          `(${skillPkg.skills.length} available, status=${skillPkg.meta.status ?? "?"})`,
+      );
+    }
 
     const planner = new Planner({
       generateJson,
@@ -288,9 +348,16 @@ export async function explore({
     const tools = createDataTools(pool);
 
     const nodes = [];
-    const findings = [];
+    let thesis = null;
+    let insightBank = {}; // node_id → 精炼后的 insight 文本
+    let missingAspects = [];
+    let stoppedEarly = false;
+    let layersRun = 0;
 
     for (let layer = 1; layer <= maxLayers; layer++) {
+      layersRun = layer;
+
+      // ── Step 1: 生成问题 ──
       let questions;
       if (layer === 1) {
         questions = (
@@ -304,17 +371,18 @@ export async function explore({
           topic: goal,
           dbDescription: schemaContext,
           questionNodes: nodes,
-          insights: findings.map((f) => f.answer),
+          insights: Object.values(insightBank),
+          thesis,
+          focusAspects: missingAspects,
         });
         questions = [
           ...followUps.map((q) => ({ ...q, category: "follow_up" })),
           ...exploratory.map((q) => ({ ...q, category: "exploratory" })),
         ];
       }
-
       onLog(`layer ${layer}/${maxLayers}: ${questions.length} questions`);
 
-      // 同层并发：worker 池 + pi agent 各自独立
+      // ── Step 2: 并发执行（pi 的 agent loop 取代手写 ReAct）──
       const answers = await Promise.all(
         questions.map((q) =>
           answerQuestion({
@@ -334,25 +402,105 @@ export async function explore({
 
       answers.forEach((a, i) => {
         const q = questions[i];
-        const node = {
+        nodes.push({
           id: `q_${layer}_${String(i).padStart(2, "0")}`,
           layer,
           category: q.category,
           parentIds: q.parentIds ?? [],
           question: a.question,
           answer: a.answer,
-        };
-        nodes.push(node);
-        findings.push(a);
+          turns: a.turns,
+          toolCalls: a.toolCalls,
+        });
       });
 
       const avgTurns = (
         answers.reduce((s, a) => s + a.turns, 0) / Math.max(1, answers.length)
       ).toFixed(1);
-      onLog(`layer ${layer} done: avg ${avgTurns} turns/question`);
+
+      // ── Step 3: insight bank 去重择优 ──
+      const selected = await filterInsights({
+        generateJson,
+        nodes,
+        topic: goal,
+        dbDescription: schemaContext,
+        thesis: thesis?.title ?? null,
+        maxInsights,
+        categoricalColumns: catCols,
+      }).catch((e) => {
+        onLog(`insight filter failed (${e.message}); keeping all findings`);
+        return null;
+      });
+      if (selected && Object.keys(selected).length) insightBank = selected;
+      onLog(
+        `layer ${layer} done: avg ${avgTurns} turns/question, ` +
+          `insight bank ${Object.keys(insightBank).length}/${nodes.length}`,
+      );
+
+      // ── Step 4: goal sufficiency 自评（决定是否早停）──
+      missingAspects = [];
+      if (goalSufficiencyCheck && layer >= goalSufficiencyMinLayers && layer < maxLayers) {
+        const verdict = await evaluateSufficiency({
+          generateJson,
+          goal,
+          insights: Object.values(insightBank),
+          skillGuidance: sufficiencyGuidance,
+        });
+        if (verdict.sufficient) {
+          onLog(`goal-sufficiency: findings answer the goal — stopping early at layer ${layer}`);
+          stoppedEarly = true;
+          break;
+        }
+        missingAspects = verdict.missingAspects;
+        onLog(`goal-sufficiency: not yet — ${missingAspects.length} focus aspect(s)`);
+      }
+
+      // ── Step 5: thesis 生成/精炼 ──
+      if (layer % thesisInterval === 0) {
+        const insights = Object.values(insightBank);
+        thesis = thesis
+          ? await refineThesis({
+              generateJson,
+              topic: goal,
+              dbDescription: schemaContext,
+              currentThesis: thesis,
+              insights,
+            }).catch(() => thesis)
+          : await generateThesis({
+              generateJson,
+              topic: goal,
+              dbDescription: schemaContext,
+              insights,
+            }).catch(() => null);
+        if (thesis) onLog(`thesis: ${thesis.title}`);
+      }
     }
 
-    return { findings, nodes, schemaContext, usage: usage.toJSON() };
+    // ── 最终 summary（自一致性合并）──
+    const summary = await generateSummary({
+      generateText,
+      goal,
+      nodes,
+      samples: summarySamples,
+    }).catch((e) => {
+      onLog(`summary failed: ${e.message}`);
+      return "";
+    });
+    onLog(`summary: ${summary.length} chars`);
+
+    return {
+      nodes,
+      insightBank,
+      thesis,
+      summary,
+      schemaContext,
+      layersRun,
+      stoppedEarly,
+      skillPackage: useSkills
+        ? { version: skillPkg.meta.version, status: skillPkg.meta.status, count: skillPkg.skills.length }
+        : null,
+      usage: usage.toJSON(),
+    };
   } finally {
     await pool.close();
   }
