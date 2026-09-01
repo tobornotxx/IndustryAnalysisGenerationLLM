@@ -96,7 +96,12 @@ const bankP = agg((r) => r.scores_by_mode?.bank?.precision);
 const sums = agg((r) => r.score_summary);
 const costs = agg((r) => r.agent_usage?.cost_usd);
 
-const fmt = (xs) => `${mean(xs).toFixed(4)} ± ${std(xs).toFixed(4)}`;
+// 缺分的 case 会被 agg 剔掉，若仍按 rows.length 标注 n 就会出现
+// 「4 个 case 的均值顶着 n=5 的标签」——实测 flag-1 补分前正是如此。
+// 因此每行各自打自己的 n，与总 case 数不一致时显式标出。
+const fmt = (xs) =>
+  `${mean(xs).toFixed(4)} ± ${std(xs).toFixed(4)}` +
+  (xs.length === rows.length ? "" : `   ⚠️ n=${xs.length}/${rows.length}（缺分的 case 未计入）`);
 console.log(`n = ${rows.length} cases`);
 console.log(`  recall   (bank)  ${fmt(bankR)}`);
 console.log(`  precision(bank)  ${fmt(bankP)}`);
@@ -115,11 +120,12 @@ writeFileSync(
     {
       n_cases: rows.length,
       layers: Number(layers),
-      recall_bank: { mean: mean(bankR), std: std(bankR) },
-      precision_bank: { mean: mean(bankP), std: std(bankP) },
-      f1_bank: { mean: mean(bankF1), std: std(bankF1) },
-      f1_raw: { mean: mean(rawF1), std: std(rawF1) },
-      summary: { mean: mean(sums), std: std(sums) },
+      // 每个指标带自己的 n：缺分的 case 不计入均值，n < n_cases 即表示均值不是全量的
+      recall_bank: { mean: mean(bankR), std: std(bankR), n: bankR.length },
+      precision_bank: { mean: mean(bankP), std: std(bankP), n: bankP.length },
+      f1_bank: { mean: mean(bankF1), std: std(bankF1), n: bankF1.length },
+      f1_raw: { mean: mean(rawF1), std: std(rawF1), n: rawF1.length },
+      summary: { mean: mean(sums), std: std(sums), n: sums.length },
       total_cost_usd: costs.reduce((a, b) => a + b, 0),
       per_flag: rows.map((r) => ({
         flag: r.flag,
