@@ -1,2 +1,5 @@
 node_modules/
 .env
+
+# worker 落地的 SQLite 临时库
+*.db

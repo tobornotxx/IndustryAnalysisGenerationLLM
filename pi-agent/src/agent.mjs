@@ -211,7 +211,19 @@ When you have the answer, state the FINDING: what the data actually revealed.
 - State conclusions, not procedures. Do not describe what you are about to do.
 - Name the specific entities involved (which column, which category, which direction of change).
 - Include the concrete numbers that support the finding.
-- If the result is inconclusive or the data cannot answer the question, say so plainly.`;
+- If the result is inconclusive or the data cannot answer the question, say so plainly.
+
+State NEGATIVE and NULL results as explicitly as positive ones. "There is no
+correlation between A and B", "the distribution is uniform across categories",
+"the metric is stable over time" are findings in their own right — do not bury
+them or present them only as the absence of something.
+
+After the finding, when — and only when — the data genuinely supports it, add a
+short INTERPRETATION: what the finding implies, and what action it points to.
+- Derive it from the finding you just reported; do not introduce claims the data
+  does not support.
+- One or two sentences. Skip this entirely if the finding is inconclusive or
+  carries no clear implication.`;
 
 /**
  * 用 pi 的 agent loop 回答单个探索问题。
@@ -431,7 +443,18 @@ export async function explore({
         onLog(`insight filter failed (${e.message}); keeping all findings`);
         return null;
       });
-      if (selected && Object.keys(selected).length) insightBank = selected;
+      if (selected && Object.keys(selected).length) {
+        insightBank = selected;
+      } else {
+        // 兜底：择优失败（解析不出 node_id 等）时退回全部节点，
+        // 否则 insight bank 会一直是空的，后续 planner/thesis/自评全部失去输入。
+        insightBank = Object.fromEntries(
+          nodes
+            .filter((n) => n.answer && !n.answer.startsWith("Execution failed"))
+            .map((n) => [n.id, n.answer]),
+        );
+        onLog(`insight filter yielded nothing; falling back to all ${Object.keys(insightBank).length} findings`);
+      }
       onLog(
         `layer ${layer} done: avg ${avgTurns} turns/question, ` +
           `insight bank ${Object.keys(insightBank).length}/${nodes.length}`,

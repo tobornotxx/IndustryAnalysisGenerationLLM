@@ -61,6 +61,14 @@ Your task is to select the most valuable insights, capped at ${maxInsights}.
 - Trivial or expected observations (e.g., "data has 500 rows", "5 categories exist")
 - Findings where the analysis failed or produced no result
 
+## Do NOT de-prioritize:
+- Negative or null results ("no correlation between A and B", "the distribution is
+  uniform", "the metric is stable over time"). A well-established absence of an
+  effect is a genuine finding, not a trivial observation — it often matters as much
+  as a positive one.
+- Findings that state what the data implies or what action it points to, when that
+  interpretation is grounded in a reported result.
+
 The topic is: ${topic}
 
 The database context: ${dbDescription}
@@ -72,15 +80,40 @@ ${input}
 `;
 
   const resp = await generateJson(prompt, { temperature: 0.3 });
-  // 只保留真实存在的 node_id，防止模型编造
-  const known = new Set(nodes.map((n) => n.id));
+
+  // 模型有时会包一层（{"insights": {...}}）或改写 node_id 的写法，
+  // 严格按 id 精确匹配会把整批结果丢掉（实测 flag-5 每层都返回 0）。
+  // 这里做两级容错：先剥外层包裹，再对 id 做规范化匹配。
+  const known = new Map(nodes.map((n) => [normalizeId(n.id), n.id]));
+  let body = resp ?? {};
+  // 若顶层只有一个键且其值是对象，视为包裹层剥掉
+  const topKeys = Object.keys(body);
+  if (topKeys.length === 1 && body[topKeys[0]] && typeof body[topKeys[0]] === "object"
+      && !Array.isArray(body[topKeys[0]]) && !known.has(normalizeId(topKeys[0]))) {
+    body = body[topKeys[0]];
+  }
+
   const out = {};
-  for (const [id, text] of Object.entries(resp ?? {})) {
-    if (known.has(id) && typeof text === "string" && text.trim()) {
-      out[id] = text.trim();
-    }
+  for (const [rawId, value] of Object.entries(body)) {
+    const id = known.get(normalizeId(rawId));
+    if (!id) continue;
+    // 值可能是字符串，也可能是 {insight: "..."} 之类的小对象
+    const text =
+      typeof value === "string"
+        ? value
+        : typeof value?.insight === "string"
+          ? value.insight
+          : typeof value?.text === "string"
+            ? value.text
+            : null;
+    if (text && text.trim()) out[id] = text.trim();
   }
   return out;
+}
+
+/** node_id 规范化：去掉非字母数字，小写。用于容忍模型改写 id 的写法。 */
+function normalizeId(s) {
+  return String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 // ══════════════════════════════════════════════════════════════
