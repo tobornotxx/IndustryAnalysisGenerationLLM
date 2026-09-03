@@ -1,0 +1,6 @@
+[submodule "run_on_benchmark/insight-bench"]
+	path = run_on_benchmark/insight-bench
+	url = https://github.com/ServiceNow/insight-bench
+[submodule "run_on_benchmark/daco"]
+	path = run_on_benchmark/daco
+	url = https://github.com/shirley-wu/daco

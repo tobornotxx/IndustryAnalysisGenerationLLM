@@ -1,0 +1,30 @@
+[
+  {
+    "flag": "flag-4",
+    "score_insights": 0.6375005653316044,
+    "insights_recall": 0.6375005653316044,
+    "insights_precision": 0.5225798972604041,
+    "insights_f1": 0.5743480571857608,
+    "score_summary": 0.3999994214276501,
+    "n_pred_insights": 31,
+    "n_gt_insights": 8,
+    "pred_summary": "1. **Overall incident volume was flat**: Monthly incidents averaged 38.5/month from January 2023 to January 2024, with a negligible upward trend of about 0.15 incidents per month (p ≈ 0.75); totals ranged from 26 to 46.\n\n2. **The stable total masked a strong shift toward Hardware**: Hardware inciden",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A",
+      "prompt_order": "gt_first"
+    },
+    "scorer_usage": {
+      "calls": 249,
+      "prompt_tokens": 304809,
+      "completion_tokens": 45980,
+      "cache_hit_tokens": 70912,
+      "cache_miss_tokens": 233897,
+      "prompt_order": "gt_first",
+      "cache_hit_rate": 0.2326
+    },
+    "status": "ok"
+  }
+]

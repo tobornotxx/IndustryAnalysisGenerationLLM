@@ -8,9 +8,20 @@
  * 这是消除 ServiceNow 字段硬编码那次修复的核心机制，不能丢。
  */
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
+/**
+ * 默认位置：本 repo 的同级目录下的 MyDataStorm。
+ * 两个 repo 必须并列 clone（见 handover/HANDOVER.md §2.3）。
+ * 换机器/换布局时用 SKILL_PACKAGE_PATH 覆盖，不要改这里。
+ */
 const DEFAULT_PACKAGE =
-  "/Users/liulife/llf-study/MyDataStorm/datastorm/skills/skill_package_v9.json";
+  process.env.SKILL_PACKAGE_PATH ??
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../../MyDataStorm/datastorm/skills/skill_package_v9.json",
+  );
 
 /** 占位符找不到真实列名时的兜底措辞（仍然数据无关）。 */
 const FALLBACK_CATEGORICAL =

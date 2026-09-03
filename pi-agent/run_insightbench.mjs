@@ -8,13 +8,32 @@
  *   set -a && . ./.env && set +a
  *   node run_insightbench.mjs --flag 1 --layers 3 --out ../results/pi_v1
  */
-import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import { explore } from "./src/agent.mjs";
 
-const REPO = "/Users/liulife/llf-study/IndustryAnalysisGenerationLLM";
-const BENCH = `${REPO}/run_on_benchmark/insight-bench`;
-const PY = "/Users/liulife/llf-study/.venv/bin/python";
+// 路径一律从本文件位置推导，换机器不用改代码（见 handover/HANDOVER.md §10）。
+// 需要偏离默认布局时用环境变量覆盖。
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO = process.env.REPO_ROOT ?? resolve(HERE, "..");
+const BENCH = process.env.BENCH_DIR ?? `${REPO}/run_on_benchmark/insight-bench`;
+const PY = process.env.PYTHON_BIN ?? resolve(REPO, "../.venv/bin/python");
+
+for (const [label, p, hint] of [
+  ["Python", PY, "PYTHON_BIN=/path/to/python"],
+  [
+    "InsightBench 数据",
+    `${BENCH}/data/notebooks`,
+    "见 HANDOVER.md §10 第 2 步 clone benchmark，或设 BENCH_DIR=",
+  ],
+]) {
+  if (!existsSync(p)) {
+    console.error(`找不到 ${label}: ${p}\n  覆盖方式: ${hint}`);
+    process.exit(1);
+  }
+}
 
 function arg(name, dflt) {
   const i = process.argv.indexOf(`--${name}`);

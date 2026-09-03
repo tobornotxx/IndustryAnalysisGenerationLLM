@@ -1,0 +1,106 @@
+[
+  {
+    "flag": "flag-3",
+    "score_insights": 0.966667124447048,
+    "insights_recall": 0.966667124447048,
+    "insights_precision": 0.7374999149881855,
+    "insights_f1": 0.8366749333889648,
+    "score_summary": 0.9000041131216088,
+    "n_pred_insights": 16,
+    "n_gt_insights": 3,
+    "pred_summary": "1. **Overall assignment imbalance is extreme and statistically significant**: Fred Luddy received 385 of 500 assignments (77.0%), while Beth Anglin had 47 (9.4%), Howard Johnson 31 (6.2%), Luke Wilson 21 (4.2%), and Charlie Whitherspoon 16 (3.2%). The Gini coefficient was 0.6112, and the chi-squared",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A",
+      "prompt_order": "pred_first"
+    },
+    "scorer_usage": {
+      "calls": 49,
+      "prompt_tokens": 30836,
+      "completion_tokens": 35490,
+      "cache_hit_tokens": 2432,
+      "cache_miss_tokens": 28404,
+      "prompt_order": "pred_first",
+      "cache_hit_rate": 0.0789
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-1",
+    "score_insights": 0.500001576347097,
+    "insights_recall": 0.500001576347097,
+    "insights_precision": 0.753332234772548,
+    "insights_f1": 0.6010646191103164,
+    "score_summary": 0.6000001204207872,
+    "n_pred_insights": 30,
+    "n_gt_insights": 6,
+    "pred_summary": "1. **Hardware dominates the overall incident distribution**: Hardware accounts for 336 of 500 incidents (67.2%), while Network (10.2%), Software (8.2%), Database (8.0%), and Inquiry/Help (6.4%) are all much smaller.\n\n2. **The Hardware-heavy pattern is consistent over time**: From January 2023 throug",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A",
+      "prompt_order": "pred_first"
+    },
+    "scorer_usage": {
+      "calls": 181,
+      "prompt_tokens": 111820,
+      "completion_tokens": 42836,
+      "cache_hit_tokens": 19456,
+      "cache_miss_tokens": 92364,
+      "prompt_order": "pred_first",
+      "cache_hit_rate": 0.174
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-6",
+    "score_insights": 0.0,
+    "score_summary": 0.0,
+    "status": "error: Error code: 402 - {'error': {'message': 'Insufficient Balance', 'type': 'unknown_error', 'param': None, 'code': 'invalid_request_error'}}"
+  },
+  {
+    "flag": "flag-7",
+    "score_insights": 0.0,
+    "score_summary": 0.0,
+    "status": "error: Error code: 402 - {'error': {'message': 'Insufficient Balance', 'type': 'unknown_error', 'param': None, 'code': 'invalid_request_error'}}"
+  },
+  {
+    "flag": "flag-8",
+    "score_insights": 0.0,
+    "score_summary": 0.0,
+    "status": "error: Error code: 402 - {'error': {'message': 'Insufficient Balance', 'type': 'unknown_error', 'param': None, 'code': 'invalid_request_error'}}"
+  },
+  {
+    "flag": "flag-9",
+    "score_insights": 0.0,
+    "score_summary": 0.0,
+    "status": "error: Error code: 402 - {'error': {'message': 'Insufficient Balance', 'type': 'unknown_error', 'param': None, 'code': 'invalid_request_error'}}"
+  },
+  {
+    "flag": "flag-10",
+    "score_insights": 0.0,
+    "score_summary": 0.0,
+    "status": "error: Error code: 402 - {'error': {'message': 'Insufficient Balance', 'type': 'unknown_error', 'param': None, 'code': 'invalid_request_error'}}"
+  },
+  {
+    "flag": "flag-5",
+    "score_insights": 0.0,
+    "score_summary": 0.0,
+    "status": "error: Error code: 402 - {'error': {'message': 'Insufficient Balance', 'type': 'unknown_error', 'param': None, 'code': 'invalid_request_error'}}"
+  },
+  {
+    "flag": "flag-2",
+    "score_insights": 0.0,
+    "score_summary": 0.0,
+    "status": "error: Error code: 402 - {'error': {'message': 'Insufficient Balance', 'type': 'unknown_error', 'param': None, 'code': 'invalid_request_error'}}"
+  },
+  {
+    "flag": "flag-4",
+    "score_insights": 0.0,
+    "score_summary": 0.0,
+    "status": "error: Error code: 402 - {'error': {'message': 'Insufficient Balance', 'type': 'unknown_error', 'param': None, 'code': 'invalid_request_error'}}"
+  }
+]

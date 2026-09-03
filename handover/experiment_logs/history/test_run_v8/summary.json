@@ -1,0 +1,152 @@
+[
+  {
+    "flag": "flag-3",
+    "score_insights": 0.99999148421327,
+    "score_summary": 0.9999818767904823,
+    "n_pred_insights": 15,
+    "n_gt_insights": 3,
+    "pred_summary": "1. **Severe Overall Imbalance**: Fred Luddy is assigned 385 out of approximately 500 total incidents (77%), while the next busiest agent, Beth Anglin, has only 47 (9.4%). The median across all five agents is just 31, confirming a highly skewed distribution that places extreme strain on a single agen",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A"
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-1",
+    "score_insights": 0.9666682809711974,
+    "score_summary": 0.6999962284800998,
+    "n_pred_insights": 14,
+    "n_gt_insights": 6,
+    "pred_summary": "1. **Overall Skew Toward Hardware Dominates the Distribution**: Hardware accounts for 336 incidents, far exceeding Network (51), Software (41), Database (40), and Inquiry/Help (32). This confirms a severe imbalance, with Hardware representing the overwhelming majority of all incidents.\n\n2. **Priorit",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A"
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-5",
+    "score_insights": 0.6201688764153386,
+    "score_summary": 0.8001123199682354,
+    "n_pred_insights": 32,
+    "n_gt_insights": 4,
+    "pred_summary": "1. **Hardware incidents show a dramatic and statistically significant upward trend in resolution time.** From January 2023 to December 2023, the monthly average for Hardware increased from 52.2 hours to 866.4 hours, with a slope of +73.43 hours per month (p < 0.001). Raw monthly data confirm this co",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A"
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-4",
+    "score_insights": 0.7249599719210342,
+    "score_summary": 0.10000318600409197,
+    "n_pred_insights": 26,
+    "n_gt_insights": 8,
+    "pred_summary": "1. **Overall incident volume is stable, not increasing**: Monthly assigned incidents fluctuated between 26 (November 2023) and 46 (April 2023), with January 2023 at 37 and January 2024 at 42—a difference within normal variation. No sustained upward trend was detected, so total workload does not expl",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A"
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-2",
+    "score_insights": 0.9999963882742143,
+    "score_summary": 0.8000002694051837,
+    "n_pred_insights": 31,
+    "n_gt_insights": 4,
+    "pred_summary": "1. **Steady increase in average resolution times from January to October 2023**: Monthly average resolution time rose from 5.89 days in January 2023 to 87.36 days in October 2023, with a statistically significant increase of approximately 9.10 days per month (p < 0.001).\n\n2. **Trend consistent acros",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A"
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-7",
+    "score_insights": 0.9199989779519504,
+    "score_summary": 0.899965569924035,
+    "n_pred_insights": 19,
+    "n_gt_insights": 5,
+    "pred_summary": "1. **Beth Anglin has the highest assignment volume and a statistically significant increasing trend**: With 188 total assignments—more than double the next highest agent (Howard Johnson, 87)—and monthly counts rising from 8 in January 2023 to 24 in December 2023 and January 2024, the increase is con",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A"
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-6",
+    "score_insights": 0.65995098726514,
+    "score_summary": 0.1999931066264372,
+    "n_pred_insights": 23,
+    "n_gt_insights": 5,
+    "pred_summary": "1. **Balanced Workload but Extreme Outlier in Resolution Time**: The five agents handle similar incident volumes (Fred Luddy: 84, others: 98–104). However, Fred Luddy’s average resolution time of **750 hours** is over three times the team average of **223.48 hours**, while the other four agents clus",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A"
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-8",
+    "score_insights": 0.9999993432424983,
+    "score_summary": 0.6000031388973643,
+    "n_pred_insights": 21,
+    "n_gt_insights": 4,
+    "pred_summary": "1. **David Loo is the dominant source of incident-ticket imbalance**: He created 266 tickets, far exceeding the other three callers combined (Bud Richman 86, ITIL User 75, Don Goodliffe 73). This extreme skew shows the imbalance is driven almost entirely by a single caller.\n\n2. **David Loo is the on",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A"
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-9",
+    "score_insights": 0.899965284430379,
+    "score_summary": 0.699945933643001,
+    "n_pred_insights": 31,
+    "n_gt_insights": 5,
+    "pred_summary": "1. **Surge in High-Priority Incidents in August 2023**: Monthly hardware incidents peaked at 52 in August 2023, driven almost entirely by “2 – High” priority incidents that rose from 8 in January 2023 to 40 (a 400% increase). No other priority level (Critical or Moderate) exceeded 6 incidents per mo",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A"
+    },
+    "status": "ok"
+  },
+  {
+    "flag": "flag-10",
+    "score_insights": 0.9749982475411765,
+    "score_summary": 0.8999997340536353,
+    "n_pred_insights": 28,
+    "n_gt_insights": 4,
+    "pred_summary": "1. **Overall TTR Increased Sharply and Significantly**: Monthly average time to resolution (TTR) rose from approximately 70 hours in January 2023 to over 500 hours by January 2024, a statistically significant increase of 66.1 hours per month (p < 0.001). This trend was consistent across all incident",
+    "scorer": {
+      "api_base": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash",
+      "logprobs": "True",
+      "mc_samples": "N/A"
+    },
+    "status": "ok"
+  }
+]

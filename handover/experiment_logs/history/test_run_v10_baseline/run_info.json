@@ -1,0 +1,15 @@
+{
+  "benchmark_type": "standard",
+  "model_name": null,
+  "max_layers": 5,
+  "scorer": {
+    "api_base": "https://api.deepseek.com",
+    "model": "deepseek-v4-flash",
+    "logprobs": "True",
+    "mc_samples": "N/A",
+    "prompt_order": "pred_first"
+  },
+  "n_datasets": 10,
+  "n_completed": 2,
+  "n_errors": 8
+}

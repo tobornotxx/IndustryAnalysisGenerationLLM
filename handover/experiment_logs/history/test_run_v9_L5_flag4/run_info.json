@@ -1,0 +1,15 @@
+{
+  "benchmark_type": "toy",
+  "model_name": null,
+  "max_layers": 5,
+  "scorer": {
+    "api_base": "https://api.deepseek.com",
+    "model": "deepseek-v4-flash",
+    "logprobs": "True",
+    "mc_samples": "N/A",
+    "prompt_order": "gt_first"
+  },
+  "n_datasets": 5,
+  "n_completed": 1,
+  "n_errors": 0
+}
