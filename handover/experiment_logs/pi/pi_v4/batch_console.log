@@ -1,0 +1,233 @@
+=== batch: flags=[1,2,3,4,5] layers=5 → ../results/pi_v4 ===
+
+--- flag-1 ---
+=== flag-1 | layers=5 | pool=4 ===
+goal: Find the discrepancy and imbalance in distribution of incidents assigned across categories
+GT insights: 6 | GT summary: 836 chars
+  · dataset loaded: schema 4731 chars + 946 chars skill guidance, grouping=[assigned_to, assignment_group, category, closed_by]
+  · skills: v9-candidates (5 available, status=candidates-pending-validation)
+  · layer 1/5: 2 questions
+  · layer 1 done: avg 6.5 turns/question, insight bank 2/2
+  · layer 2/5: 10 questions
+  · layer 2 done: avg 6.6 turns/question, insight bank 9/12
+  · goal-sufficiency: not yet — 2 focus aspect(s)
+  · thesis: Australia's Printer546 Is a Silent Critical Infrastructure Crisis
+  · layer 3/5: 8 questions
+  · layer 3 done: avg 7.4 turns/question, insight bank 19/20
+  · goal-sufficiency: not yet — 5 focus aspect(s)
+  · thesis: Australia's Hardware Crisis is Beyond Any Single Printer
+  · layer 4/5: 9 questions
+  · layer 4 done: avg 7.4 turns/question, insight bank 12/29
+  · goal-sufficiency: not yet — 2 focus aspect(s)
+  · thesis: The One Printer That Broke Australia's IT Support
+  · layer 5/5: 8 questions
+  · layer 5 done: avg 7.4 turns/question, insight bank 13/37
+  · thesis: Printer546: Australia's Hidden Critical Infrastructure
+  · summary: 2319 chars
+
+explored in 287.3s
+layers run: 5
+pred: raw=37 bank=13 → scoring "bank" (13)
+thesis: Printer546: Australia's Hidden Critical Infrastructure
+usage: {"calls":286,"prompt_tokens":1734691,"prompt_uncached":291107,"prompt_cached":1443584,"completion_tokens":133006,"reasoning_tokens":0,"cache_hit_rate":0.8322,"cost_usd":0.082039}
+
+scoring both pred modes × 6 GT + summary …
+
+======================================================================
+flag-1 [raw ] n=37  recall=0.9667  precision=0.4407  F1=0.6054
+flag-1 [bank] n=13  recall=0.9667  precision=0.5703  F1=0.7174 ←
+flag-1 summary=0.9000
+elapsed=287.3s  cost=$0.082039  agent 286 calls, cache 83%
+saved → ../results/pi_v4/flag-1_result.json
+======================================================================
+
+--- flag-2 ---
+=== flag-2 | layers=5 | pool=4 ===
+goal: Analyze the trend of incident resolution times and identify potential reasons for any observed patterns.
+GT insights: 4 | GT summary: 1565 chars
+  · dataset loaded: schema 4981 chars + 946 chars skill guidance, grouping=[assignment_group, assigned_to, category, closed_by]
+  · skills: v9-candidates (5 available, status=candidates-pending-validation)
+  · layer 1/5: 2 questions
+  · layer 1 done: avg 6.0 turns/question, insight bank 2/2
+  · thesis: Why Your IT Team's Speed Is a Mirage
+  · layer 2/5: 8 questions
+  · layer 2 done: avg 7.4 turns/question, insight bank 6/10
+  · goal-sufficiency: not yet — 4 focus aspect(s)
+  · thesis: The Clock Is the Culprit, Not the Queue
+  · layer 3/5: 9 questions
+  · layer 3 done: avg 7.6 turns/question, insight bank 10/19
+  · goal-sufficiency: not yet — 5 focus aspect(s)
+  · thesis: The Inescapable Calendar: Attribution Suicide by Synthetic Data
+  · layer 4/5: 8 questions
+  · layer 4 done: avg 7.8 turns/question, insight bank 10/27
+  · goal-sufficiency: not yet — 4 focus aspect(s)
+  · thesis: Synthetic Data Mirage: Why ITSM Benchmarks Mislead
+  · layer 5/5: 9 questions
+  · layer 5 done: avg 7.7 turns/question, insight bank 16/36
+  · thesis: ITSM Data Is Not Sloppy; It’s Synthetic
+  · summary: 2391 chars
+
+explored in 374.9s
+layers run: 5
+pred: raw=36 bank=16 → scoring "bank" (16)
+thesis: ITSM Data Is Not Sloppy; It’s Synthetic
+usage: {"calls":292,"prompt_tokens":1852279,"prompt_uncached":279159,"prompt_cached":1573120,"completion_tokens":178620,"reasoning_tokens":0,"cache_hit_rate":0.8493,"cost_usd":0.093501}
+
+scoring both pred modes × 4 GT + summary …
+
+======================================================================
+flag-2 [raw ] n=36  recall=0.9750  precision=0.3584  F1=0.5241
+flag-2 [bank] n=16  recall=0.8500  precision=0.6062  F1=0.7077 ←
+flag-2 summary=0.2000
+elapsed=374.9s  cost=$0.093501  agent 292 calls, cache 85%
+saved → ../results/pi_v4/flag-2_result.json
+======================================================================
+
+--- flag-3 ---
+=== flag-3 | layers=5 | pool=4 ===
+goal: Find and highlight the imbalance in incident assignments and perhaps propose actionable_insights that could help redistr
+GT insights: 3 | GT summary: 923 chars
+  · dataset loaded: schema 4585 chars + 946 chars skill guidance, grouping=[assigned_to, assignment_group, category, closed_by]
+  · skills: v9-candidates (5 available, status=candidates-pending-validation)
+  · layer 1/5: 2 questions
+  · layer 1 done: avg 5.0 turns/question, insight bank 2/2
+  · thesis: The 1% Solution: Why One Analyst Shouldn't Carry 77% of IT's Load
+  · layer 2/5: 9 questions
+  · layer 2 done: avg 6.3 turns/question, insight bank 6/11
+  · goal-sufficiency: not yet — 5 focus aspect(s)
+  · thesis: The 77% Illusion: Why the Hero Agent Is an Operational Trap
+  · layer 3/5: 9 questions
+  · layer 3 done: avg 5.3 turns/question, insight bank 12/20
+  · goal-sufficiency: not yet — 4 focus aspect(s)
+  · thesis: The 77% Illusion: Database Dependency Masks a Fixable Imbalance
+  · layer 4/5: 10 questions
+  · insight filter yielded nothing; falling back to all 30 findings
+  · layer 4 done: avg 7.0 turns/question, insight bank 30/30
+  · goal-sufficiency: findings answer the goal — stopping early at layer 4
+  · summary: 1483 chars
+
+explored in 210.0s
+layers run: 4 (stopped early)
+pred: raw=30 bank=30 → scoring "bank" (30)
+thesis: The 77% Illusion: Database Dependency Masks a Fixable Imbalance
+usage: {"calls":203,"prompt_tokens":1036644,"prompt_uncached":192228,"prompt_cached":844416,"completion_tokens":90661,"reasoning_tokens":0,"cache_hit_rate":0.8146,"cost_usd":0.054661}
+
+scoring both pred modes × 3 GT + summary …
+
+======================================================================
+flag-3 [raw ] n=30  recall=0.9667  precision=0.7137  F1=0.8211
+flag-3 [bank] n=30  recall=0.9667  precision=0.7201  F1=0.8253 ←
+flag-3 summary=0.9000
+elapsed=210.0s  cost=$0.054661  agent 203 calls, cache 81%
+saved → ../results/pi_v4/flag-3_result.json
+======================================================================
+
+--- flag-4 ---
+=== flag-4 | layers=5 | pool=4 ===
+goal: Identify and analyze increasing trends in the number of incidents assigned to understand the implications of these trend
+GT insights: 8 | GT summary: 826 chars
+  · dataset loaded: schema 4676 chars + 946 chars skill guidance, grouping=[assigned_to, assignment_group, category, closed_by]
+  · skills: v9-candidates (5 available, status=candidates-pending-validation)
+  · layer 1/5: 2 questions
+  · layer 1 done: avg 6.0 turns/question, insight bank 2/2
+  · thesis: Hardware Queue Became a Graveyard for All Other IT Work
+  · layer 2/5: 8 questions
+  · layer 2 done: avg 6.5 turns/question, insight bank 5/10
+  · goal-sufficiency: not yet — 4 focus aspect(s)
+  · thesis: Hardware Surge is Real Demand, Not a Catch-All Dumping Ground
+  · layer 3/5: 8 questions
+  · layer 3 done: avg 7.5 turns/question, insight bank 9/18
+  · goal-sufficiency: not yet — 5 focus aspect(s)
+  · thesis: Hardware Surge: Effective Overload, Not Systemic Failure
+  · layer 4/5: 9 questions
+  · layer 4 done: avg 7.4 turns/question, insight bank 13/27
+  · goal-sufficiency: not yet — 4 focus aspect(s)
+  · thesis: Printer Paradox: Volume Surge Masks Efficiency Triumph
+  · layer 5/5: 9 questions
+  · layer 5 done: avg 7.4 turns/question, insight bank 16/36
+  · thesis: Hardware Monoculture: The Peril of Centralized Absorption
+  · summary: 2277 chars
+
+explored in 327.8s
+layers run: 5
+pred: raw=35 bank=16 → scoring "bank" (16)
+thesis: Hardware Monoculture: The Peril of Centralized Absorption
+usage: {"calls":280,"prompt_tokens":1870123,"prompt_uncached":283307,"prompt_cached":1586816,"completion_tokens":146274,"reasoning_tokens":0,"cache_hit_rate":0.8485,"cost_usd":0.085063}
+
+scoring both pred modes × 8 GT + summary …
+
+======================================================================
+flag-4 [raw ] n=35  recall=0.7753  precision=0.4976  F1=0.6062
+flag-4 [bank] n=16  recall=0.6748  precision=0.7063  F1=0.6902 ←
+flag-4 summary=0.7000
+elapsed=327.8s  cost=$0.085063  agent 280 calls, cache 85%
+saved → ../results/pi_v4/flag-4_result.json
+======================================================================
+
+--- flag-5 ---
+=== flag-5 | layers=5 | pool=4 ===
+goal: Analyze the trends in the dataset to identify factors that influence the time to resolution, particularly in certain cat
+GT insights: 4 | GT summary: 897 chars
+  · dataset loaded: schema 4609 chars + 946 chars skill guidance, grouping=[assignment_group, assigned_to, category, closed_by]
+  · skills: v9-candidates (5 available, status=candidates-pending-validation)
+  · layer 1/5: 2 questions
+  · layer 1 done: avg 5.0 turns/question, insight bank 2/2
+  · thesis: Hardware's Silent Crisis: One Team's Failure Is Hiding a Healthy IT Department
+  · layer 2/5: 8 questions
+  · layer 2 done: avg 7.4 turns/question, insight bank 5/10
+  · goal-sufficiency: not yet — 4 focus aspect(s)
+  · thesis: The Printer Trap: How Hardware's Silent Backlog Masks a Healthy IT
+  · layer 3/5: 10 questions
+  · layer 3 done: avg 7.1 turns/question, insight bank 11/20
+  · goal-sufficiency: not yet — 3 focus aspect(s)
+  · thesis: The Printer Trap: Hardware's Silent Backlog Masks a Healthy IT
+  · layer 4/5: 8 questions
+  · layer 4 done: avg 7.8 turns/question, insight bank 12/28
+  · goal-sufficiency: not yet — 3 focus aspect(s)
+  · thesis: The Printer Trap: Hardware's Silent Backlog Masks a Healthy IT
+  · layer 5/5: 10 questions
+  · layer 5 done: avg 6.3 turns/question, insight bank 12/38
+  · thesis: The Printer Trap: Hardware's Silent Backlog Masks a Healthy IT
+  · summary: 2213 chars
+
+explored in 477.3s
+layers run: 5
+pred: raw=37 bank=12 → scoring "bank" (12)
+thesis: The Printer Trap: Hardware's Silent Backlog Masks a Healthy IT
+usage: {"calls":287,"prompt_tokens":1638012,"prompt_uncached":239228,"prompt_cached":1398784,"completion_tokens":135998,"reasoning_tokens":0,"cache_hit_rate":0.854,"cost_usd":0.075488}
+
+scoring both pred modes × 4 GT + summary …
+
+======================================================================
+flag-5 [raw ] n=37  recall=0.7750  precision=0.3649  F1=0.4962
+flag-5 [bank] n=12  recall=0.7252  precision=0.6088  F1=0.6619 ←
+flag-5 summary=0.9000
+elapsed=477.3s  cost=$0.075488  agent 287 calls, cache 85%
+saved → ../results/pi_v4/flag-5_result.json
+======================================================================
+
+====================================================================================
+                                        汇总
+====================================================================================
+flag     n_raw n_bank  R(bank)  P(bank)  F1(bank)  F1(raw)  summary       $   层
+------------------------------------------------------------------------------------
+flag-1      37     13   0.9667   0.5703    0.7174   0.6054   0.9000   0.082   5
+flag-2      36     16   0.8500   0.6062    0.7077   0.5241   0.2000   0.094   5
+flag-3      30     30   0.9667   0.7201    0.8253   0.8211   0.9000   0.055   4*
+flag-4      35     16   0.6748   0.7063    0.6902   0.6062   0.7000   0.085   5
+flag-5      37     12   0.7252   0.6088    0.6619   0.4962   0.9000   0.075   5
+------------------------------------------------------------------------------------
+n = 5 cases
+  recall   (bank)  0.8367 ± 0.1205
+  precision(bank)  0.6423 ± 0.0596
+  F1       (bank)  0.7205 ± 0.0557
+  F1       (raw )  0.6106 ± 0.1140
+  summary          0.7200 ± 0.2713
+  总成本            $0.391
+  总耗时            42.8 分钟
+====================================================================================
+
+⚠️ 方差是这次的关键产出：case 间差异（如 flag-1 历史极差 0.63 vs
+   flag-3 仅 0.033）远大于版本间差异，没有方差就无法判断提升是否真实。
+
+saved → ../results/pi_v4/summary.json

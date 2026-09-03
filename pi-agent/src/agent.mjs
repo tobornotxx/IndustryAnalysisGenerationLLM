@@ -445,15 +445,24 @@ export async function explore({
       });
       if (selected && Object.keys(selected).length) {
         insightBank = selected;
+      } else if (Object.keys(insightBank).length) {
+        // 择优瞬时失败时，上一层已选好的 bank 是比「全部节点」好得多的退路：
+        // 它已经去过重、择过优。实测 flag-3 第 4 层择优失败，若退回全部节点，
+        // bank 会从 12 条炸到 30 条（等于 raw 口径，precision 失去意义），
+        // 且 goal-sufficiency 看到一大堆发现后当层就误判「够了」提前停。
+        onLog(
+          `insight filter yielded nothing; keeping previous layer's ` +
+            `${Object.keys(insightBank).length} selected findings`,
+        );
       } else {
-        // 兜底：择优失败（解析不出 node_id 等）时退回全部节点，
-        // 否则 insight bank 会一直是空的，后续 planner/thesis/自评全部失去输入。
+        // 首层就失败：没有上一层可退，只能用全部节点，否则后续 planner /
+        // thesis / 自评全部失去输入。
         insightBank = Object.fromEntries(
           nodes
             .filter((n) => n.answer && !n.answer.startsWith("Execution failed"))
             .map((n) => [n.id, n.answer]),
         );
-        onLog(`insight filter yielded nothing; falling back to all ${Object.keys(insightBank).length} findings`);
+        onLog(`insight filter yielded nothing at first layer; falling back to all ${Object.keys(insightBank).length} findings`);
       }
       onLog(
         `layer ${layer} done: avg ${avgTurns} turns/question, ` +

@@ -16,9 +16,9 @@
 | **总目标** | 把多智能体数据探索 pipeline 当作一个"skill"，在 InsightBench 上训练/精炼，再迁移到更新的 benchmark 上测试 |
 | **交付物** | (a) 能正常工作的 insight agent；(b) 一个**真正的 skill**（可执行脚本 + 说明），别的 agent 系统（Claude Code / Codex）拿去也能用 |
 | **当前进度** | agent 主体已从手写 ReAct 迁移到 pi harness 并功能对齐；skill 包仍是**未验证的候选**；迁移测试**尚未开始** |
-| **当前分数** | InsightBench 5 case，recall 0.803 (raw) / 0.750 (bank)；v8 基线 0.862 (raw) |
+| **当前分数** | InsightBench 5 case（`pi_v4` 干净基线）：recall **0.892 (raw)** / 0.837 (bank)，F1 0.721 (bank)。v8 基线 0.862 (raw) → **已追平**（+0.029，但小于判分噪声，不宜声称超越） |
 | **最大的未完成项** | Skill Extraction Agent（整个 skill 这条主线还没真正开始） |
-| **最需要注意的坑** | 判分噪声（同数据同尺子重跑极差最大 0.117）与 v8 的口径不一致（v8 无 bank 模式） |
+| **最需要注意的坑** | 判分噪声（同数据同尺子重跑极差最大 0.117）；与 v8 对比**必须用 raw 口径**（v8 无 bank）；recall 涨的同时 precision 在跌（§5.2d） |
 
 ---
 
@@ -175,10 +175,11 @@ DEEPSEEK_API_KEY=sk-...
 
 ```
 experiment_logs/
-  pi/                           ← pi 版全量结果（2.6M，含完整 nodes + score_matrix）
+  pi/                           ← pi 版全量结果（4.5M，含完整 nodes + score_matrix）
     pi_v1/  flag-1 单 case（首次跑通）
-    pi_v2/  5 case 全量 ← 【当前基线】
-    pi_v3/  flag-4/5（prompt 修复后）
+    pi_v2/  5 case，**混合态**（flag-1/2/3 旧 prompt + id bug 未修）—— 仅作 §5.4 对照
+    pi_v3/  flag-4/5，prompt 修复后（§5.4 实验的处理组）
+    pi_v4/  5 case ← 【**当前基线，唯一可对外汇报的**】含 batch_console.log
   history/                      ← 旧 Python 版只留 summary（每个 case 的完整树太大）
     test_run_v8/         ← 【历史最佳基线】10 case
     test_run_v10_baseline/  ← 只有 2 case 有效，其余 402 余额不足
@@ -307,16 +308,17 @@ pi 版对 pred 有两种口径：
 | `raw` | 每个探索节点的「问题 + 答案」 | 34–40 |
 | `bank` | 只用 insight_bank 去重择优后的条目 | 11–13 |
 
-**precision 的分母是 pred 条数，所以两者 precision 差异巨大**（flag-1：
-raw 0.515 vs bank 0.867）。
+**precision 的分母是 pred 条数，所以两者 precision 差异巨大**（pi_v4 flag-1：
+raw 0.441 vs bank 0.570；pi_v2 flag-1 更极端：0.515 vs 0.867）。
 
 **而 v8 的历史结果只有 raw 口径**（`test_run_v8/summary.json` 连
-`insights_precision` 字段都没有）。所以：
+`insights_precision` 字段都没有）。所以拿 v8 做对照时**必须用 raw**：
 
-- ✅ 正确比较：pi raw 0.8033 **vs** v8 raw 0.8624 → **差距 −0.059**
-- ❌ 错误比较：pi bank 0.7500 vs v8 raw 0.8624 → 差距 −0.112
+- ✅ 正确比较：pi_v4 raw **0.8917** vs v8 raw 0.8624 → **+0.029（追平）**
+- ❌ 错误比较：pi_v4 bank 0.8367 vs v8 raw 0.8624 → −0.026（口径错配，无意义）
 
-**我在对话中一度报的是后者（−0.112），这是错的。** 写进文档以免再犯。
+**我在对话中曾用错配口径报出"pi 比 v8 差 0.112"**（当时还叠加了混合态数据的
+问题）。两个错误都已纠正，写进文档以免再犯。**任何与 v8 的对比一律用 raw。**
 
 ---
 
@@ -341,37 +343,81 @@ recall 同步从 0.56 涨到 0.88。我曾把 pred 增长当成问题报告，�
 **这条对接手人的意义**：如果你只看 recall，你会一路把 pred 做多；只有
 recall/precision/F1 一起看才有意义。而 F1 从 v8 开始才有数据。
 
-### 5.2 pi 版当前基线（`experiment_logs/pi/pi_v2/`，5 case，layers=5）
+### 5.2 【当前基线】干净的 5 case（`experiment_logs/pi/pi_v4/`，layers=5）
+
+**这是唯一可对外汇报的基线** —— 全部 5 个 case 用同一份代码（HEAD 含
+insight_bank id 修复 + 负结果/解读引导）一次跑完，无混合状态。
+2026-09-03 跑，$0.391，42.8 分钟。
 
 | flag | raw R | raw P | raw F1 | bank R | bank P | bank F1 | v8 R (raw) | 成本 |
 |---|---|---|---|---|---|---|---|---|
-| flag-1 | 0.9167 | 0.5147 | 0.6593 | 0.8500 | 0.8667 | 0.8583 | 0.9667 | $0.059 |
-| flag-2 | 0.7750 | 0.5616 | 0.6513 | 0.7750 | 0.8308 | 0.8019 | 1.0000 | $0.095 |
-| flag-3 | 1.0000 | 0.6800 | 0.8095 | 0.9667 | 0.5182 | 0.6747 | 1.0000 | $0.061 |
-| flag-4 | 0.7500 | 0.5100 | 0.6071 | 0.6082 | 0.6182 | 0.6131 | 0.7250 | $0.083 |
-| flag-5 | 0.5750 | 0.3458 | 0.4318 | 0.5500 | 0.4737 | 0.5090 | 0.6202 | $0.076 |
-| **mean** | **0.8033** | 0.5224 | 0.6318 | **0.7500** | 0.6615 | 0.6914 | **0.8624** | $0.374 |
+| flag-1 | 0.9667 | 0.4407 | 0.6054 | 0.9667 | 0.5703 | 0.7174 | 0.9667 | $0.082 |
+| flag-2 | 0.9750 | 0.3584 | 0.5241 | 0.8500 | 0.6062 | 0.7077 | 1.0000 | $0.094 |
+| flag-3 | 0.9667 | 0.7137 | 0.8211 | 0.9667 | 0.7201 | 0.8253 | 1.0000 | $0.055 |
+| flag-4 | 0.7753 | 0.4976 | 0.6062 | 0.6748 | 0.7063 | 0.6902 | 0.7250 | $0.085 |
+| flag-5 | 0.7750 | 0.3649 | 0.4962 | 0.7252 | 0.6088 | 0.6619 | 0.6202 | $0.075 |
+| **mean** | **0.8917** | 0.4751 | 0.6106 | **0.8367** | 0.6423 | 0.7205 | **0.8624** | $0.391 |
+
+⚠️ **flag-3 的 bank n=30 等于 raw** —— 第 4 层择优瞬时失败走了兜底，该行的
+bank 数字实际是 raw 口径，不要当作 bank 有效样本。见 (c)。
 
 **逐段分析：**
 
-**(a) 同口径差距 −0.059，方向一致但幅度在噪声量级内。** 5/5 个 case 都比 v8
-低，方向一致性说明差距**可能**是真的；但单 case 判分噪声最大 0.117（§5.3），
-所以 −0.059 的**均值**可读，任何单个 case 的 delta 都不可读。
+**(a) 同口径 recall 反超 v8：0.8917 vs 0.8624（+0.029），3/5 个 case 胜。**
+这推翻了此前"pi 版比 v8 差"的结论 —— 那个结论建立在混合态数据上。
+但 **+0.029 小于判分噪声均值极差 0.037（§5.3）**，所以诚实的说法是
+**"pi 版已追平 v8，尚不能声称超越"**。方差还从 0.159 收窄到 0.095，
+这个改善比均值本身更有意义（结果更稳）。
 
-**(b) bank 模式让 precision 大涨而 recall 几乎不掉。** flag-1：34→12 条，
-recall −0.017，precision 0.515→0.867。这说明 insight_bank 这一层是有效的
-去噪，**它筛掉的基本都是废话**。
+**(b) 干净基线相对混合态 pi_v2 普涨，且涨幅集中在此前最差的 case。**
+bank recall：flag-5 +0.175、flag-1 +0.117、flag-2 +0.075、flag-4 +0.067、
+flag-3 ±0。**flag-5 从 0.5500 涨到 0.7252，一举超过 v8 的 0.6202。**
+两个来源：insight_bank id 匹配修复（§9.3a，此前静默丢弃整批择优结果，
+flag-5 是受害最重的 case）+ 负结果/解读引导（§5.4）。
 
-**(c) 但 bank 在 flag-3 上反转了**：precision 0.680→0.518。原因是 flag-3 只有
-3 条 GT，bank 留了 11 条，分母小的时候择优反而可能筛掉了对的。**所以"bank 一律
-更好"这个假设是被证伪的**（§9.1）。
+**(c) flag-3 暴露出兜底逻辑本身的缺陷（已修，见下）。** 日志：
+```
+· layer 3 done: insight bank 12/20
+· insight filter yielded nothing; falling back to all 30 findings
+· layer 4 done: insight bank 30/30
+· goal-sufficiency: findings answer the goal — stopping early at layer 4
+```
+第 4 层择优瞬时失败 → 兜底**把第 3 层已选好的 12 条丢掉**，换成全部 30 个
+原始节点 → 自评看到一大堆发现后当层就误判"够了"、提前停在第 4 层。
+上一层的 bank 显然是比"全部节点"好得多的退路。**已修**：改为优先保留
+上一层的 bank，只有首层就失败才退回全部节点（4 种情形已单测覆盖）。
 
-**(d) 成本极低**：5 case 全跑 $0.374，缓存命中 75–83%。这是 pi 内建 DeepSeek
-provider + `pred_first` 顺序的功劳。**成本不是本项目的瓶颈**，可以放心多跑。
+**(d) ⚠️ recall 涨但 precision 跌 —— 这是本次最值得警惕的信号。**
+bank precision 0.6615 → 0.6423，而且**分裂得很整齐**：
+- flag-1 −0.296、flag-2 −0.225（**两个 recall 涨最多的**）
+- flag-3 +0.202、flag-4 +0.088、flag-5 +0.135
 
-**(e) summary 分数方差极大**（0.30–1.00，均值 0.68 ± 0.248）。flag-4 只有 0.30
-而 flag-5 有 1.00，和 insight 分数不相关。summary 判分只有单条对单条，样本量
-=1，所以它的噪声天然比 insight 大得多。**不建议用 summary 分数做任何决策。**
+同时 bank 条数普遍变多（12→13、13→16、11→16）。**合理解读**：修复后
+insight_bank 真正开始工作，留下了更多条目，捞回了 GT（recall ↑）但也放进了
+更多没对上 GT 的内容（precision ↓）。F1 净增 +0.029，所以整体是赚的；
+但**这正是 §5.1 那个"pred 变多推高 recall"的老现象换了个位置重演**，
+需要盯住。建议把 `maxInsights`（当前 12）做一次扫描。
+
+**(e) 成本 $0.391，缓存命中 76–85%**，与 pi_v2 基本一致。成本不是瓶颈。
+
+**(f) summary 分数依然不可用**：0.72 ± 0.271，flag-2 只有 0.20 而它的 insight
+recall 是 0.85。**继续不建议用 summary 分数做任何决策。**
+
+<details>
+<summary>历史参考：混合态 pi_v2（flag-1/2/3 旧 prompt + bug 未修）</summary>
+
+| flag | raw R | raw P | raw F1 | bank R | bank P | bank F1 |
+|---|---|---|---|---|---|---|
+| flag-1 | 0.9167 | 0.5147 | 0.6593 | 0.8500 | 0.8667 | 0.8583 |
+| flag-2 | 0.7750 | 0.5616 | 0.6513 | 0.7750 | 0.8308 | 0.8019 |
+| flag-3 | 1.0000 | 0.6800 | 0.8095 | 0.9667 | 0.5182 | 0.6747 |
+| flag-4 | 0.7500 | 0.5100 | 0.6071 | 0.6082 | 0.6182 | 0.6131 |
+| flag-5 | 0.5750 | 0.3458 | 0.4318 | 0.5500 | 0.4737 | 0.5090 |
+| **mean** | 0.8033 | 0.5224 | 0.6318 | 0.7500 | 0.6615 | 0.6914 |
+
+留档理由：§5.4 的 prompt 实验以它为对照；且它是"混合态数据会得出错误结论"
+的实例 —— 基于它我曾报告"pi 比 v8 差 0.059"，干净基线证明是**追平**。
+</details>
 
 ### 5.3 ⚠️ 判分噪声 —— 这是本项目最重要的测量学发现
 
@@ -418,34 +464,53 @@ provider + `pred_first` 顺序的功劳。**成本不是本项目的瓶颈**，�
    新增的内容**本身是对的**。
 3. flag-5 raw 的 recall 微跌 −0.025 在噪声内（该 case 噪声 0.025），不构成反证。
 
-**一个具体的成功案例**：flag-4 GT7（条件推断类，"如果 Hardware 事件数线性增长，
-则说明特定设备有系统性问题"）从 **0.10 → 0.70**。这类 GT 需要从发现往前推一步，
-加了"解读"引导就命中了。
+**⚠️ 曾被我当成"具体成功案例"的一条，后来自我推翻了**：flag-4 GT7（条件推断
+类）在 v3 里 0.10 → 0.70，我据此说"这类 GT 加了解读引导就命中了"。但 `pi_v4`
+用**同一份 prompt** 重跑，它掉回 **0.20**（见 §5.5）。**单条 GT 的 delta 是
+不可引用的证据。** 上面那张 4×3 的表（尤其 precision 4/4 上升）才是这个改动
+成立的依据。
 
-**⚠️ 这个改动只在 flag-4/5 上验证过，flag-1/2/3 还是旧 prompt 的结果。**
-所以 §5.2 那张表是**混合状态**，不是一个干净基线。
+**⚠️ 这个实验本身只在 flag-4/5 上做过**（v2 → v3 对照）。全 5 case 的干净
+基线是 `pi_v4`，见 §5.2。
 
 ### 5.5 剩余 MISS 的逐条归因（零成本，用 `score_matrix` 离线做的）
 
-当前最佳配置（v2 的 flag-1/2/3 + v3 的 flag-4/5）共 25 条 GT，得分分布：
+干净基线 `pi_v4` 共 25 条 GT，得分分布：
 
 ```
 0.8–1.0 : 19 条   ← 绝大多数已命中
 0.6–0.8 :  1 条
-0.4–0.6 :  0 条
-0.2–0.4 :  2 条
-0.0–0.2 :  3 条   ← 硬骨头
+0.4–0.6 :  2 条
+0.2–0.4 :  1 条
+0.0–0.2 :  2 条   ← 硬骨头
 ```
+
+⚠️ **分布与混合态几乎一致，但成分变了**。跨版本逐 GT 对比（阈值 0.15）：
+
+| GT | v2/v3 | v4 | Δ | |
+|---|---|---|---|---|
+| flag-5 GT4 | 0.30 | 0.80 | **+0.50** | 改善 |
+| flag-2 GT2 | 0.10 | 0.40 | **+0.30** | 改善 |
+| flag-4 GT7 | 0.70 | **0.20** | **−0.50** | **退步** |
+
+**flag-4 GT7 的退步值得警惕。** 它正是 §5.4 我举为"prompt 修复成功案例"的
+那一条（条件推断类，0.10→0.70）。**同一份 prompt、同一个 case，重跑一次就掉回
+0.20。** 这不是代码变了 —— 是**运行间方差**（agent 每次探索路径不同）叠加判分
+噪声。
+
+**这条对接手人的意义**：§5.4 那个"+0.129"的结论仍然成立（precision 4/4 上升，
+且 flag-4 整体 bank recall 在 v4 里是 0.6748 > v2 的 0.6082），**但不要引用
+单条 GT 的改善作为证据** —— 单条 GT 是最不稳的粒度。
 
 **5 条低分 GT 逐条分析：**
 
 | flag | GT | 分 | 归因 |
 |---|---|---|---|
 | flag-5 GT1 | "Incident distribution across categories is more or less uniform" | 0.10 | **A: goal 不对齐** |
-| flag-2 GT2 | "There is a negative correlation between volume of incidents and TTR" | 0.10 | **A: goal 不对齐** |
 | flag-4 GT6 | "1. **Regular Updates and Maintenance**: Establish a routine…" | 0.10 | **B: 非实证型 GT** |
-| flag-5 GT4 | "Uniform distribution of incidents closed by human agents indicates earlier anomalies may not…" | 0.30 | 解读推断型，v3 已改善但未命中 |
+| flag-4 GT7 | "If the number of Hardware incidents over time is linearly increasing, it suggests…" | 0.20 | 条件推断型，**方差极大**（0.10↔0.70↔0.20） |
 | flag-4 GT1 | "The increase in volume of incidents is seen **slightly**, need to investigate further" | 0.40 | **A: goal 不对齐**（程度词） |
+| flag-2 GT2 | "There is a negative correlation between volume of incidents and TTR" | 0.40 | **A**，但 v4 已改善 +0.30 |
 
 #### 成因 A：GT 与 goal 不对齐，而 planner 被明确要求不许偏离
 
@@ -498,20 +563,30 @@ InsightBench 的 GT 格式。
 
 按"性价比 × 阻塞程度"排序。
 
-### 6.1 【最高优先】拿一个干净的 5 case 基线
+### 6.1 ✅ 已完成：干净的 5 case 基线（`pi_v4`）
 
-**为什么阻塞**：现在 §5.2 那张表是混合状态（flag-1/2/3 旧 prompt + flag-4/5 新
-prompt），而且 flag-1/2/3 是在 insight_bank id 匹配 bug 修好**之前**跑的
-（见 §9.3 第 18 条）—— 那个 bug 会**静默丢弃整批 insight_bank 且不报错**，
-flag-5 曾每层返回 0。**所以 flag-1/2/3 的 bank 分数可能被低估了。**
+2026-09-03 跑完，$0.391 / 42.8 分钟。结论见 §5.2 —— **recall 追平 v8**
+（raw 0.8917 vs 0.8624），此前"pi 比 v8 差"的结论来自混合态数据，已推翻。
+同时暴露并修掉了兜底逻辑的一个缺陷（§5.2c）。
 
-**做法**：用当前 HEAD 重跑 flag-1..5。成本约 $0.4，耗时约 25 分钟。
-
+复跑命令（改 `--out` 换目录）：
 ```bash
 cd pi-agent
 set -a && . ./.env && set +a
-node run_batch.mjs --flags 1,2,3,4,5 --layers 5 --out ../results/pi_v4 --force
+# caffeinate -i 保证锁屏不中断
+nohup caffeinate -i node run_batch.mjs --flags 1,2,3,4,5 --layers 5 \
+      --out ../results/pi_v5 --force > /tmp/pi_v5.log 2>&1 &
 ```
+
+### 6.1b 【最高优先】验证兜底修复 + 查 precision 下滑
+
+两件事一起跑一次就能看：
+
+1. **兜底修复的效果** —— flag-3 上次走了兜底（bank n=30 等于 raw），修复后
+   应当保留上一层的 12 条左右，且不会在第 4 层误判早停。
+2. **precision 下滑（§5.2d）** —— bank precision 0.6615 → 0.6423，且
+   flag-1/2（recall 涨最多的两个）跌了 0.22–0.30。建议同时扫
+   `maxInsights`（当前 12，试 8 / 12 / 16）看 F1 的拐点在哪。
 
 ### 6.2 【高】把 case 数从 5 扩到 10，并做重复测量
 
@@ -658,7 +733,7 @@ recall 0.9667 → 0.50。已回滚（commit `53032da`）。
 
 | 假设 | 证伪数据 |
 |---|---|
-| "bank 口径一律优于 raw" | 均值 +0.06，但 **flag-3 反转**，且幅度 < 噪声 |
+| "bank 口径一律优于 raw" | recall 上 bank **总是 ≤ raw**（择优会丢东西）；precision 上 bank 总是更高。所以"更好"取决于看哪个指标，且 `pi_v4` 里 bank F1 (0.721) > raw F1 (0.611) —— **但与 v8 对比只能用 raw**（§4.3） |
 | "问题前缀会稀释结论" | 只差 0.015，**flag-5 反向**，噪声内 |
 | "pred 越多越糟" | v2→v8 pred 6.8→24，**recall 同步 0.56→0.88** |
 | "判分器因 reasoning 随机而不可靠" | 同输入 **3/3 次零方差**；不稳是输入特定的 |
@@ -826,16 +901,23 @@ node run_batch.mjs --flags 1,2,3,4,5 --layers 5 --out ../results/pi_v4 --force
 1. **v8 的 per-GT 数据缺失** —— 无法确认 §5.5 成因 A 是 pi 独有还是两版共有。
    要深究需重跑 v8 并保存 `score_matrix`。
 2. **成因 A 要不要处理** —— 定性问题，需用户拍板（§6.4）。
-3. **flag-6..10 完全没在 pi 版上跑过** —— v8 跑了 10 个，pi 只跑了 5 个。
-4. **summary 分数不可用** —— 方差 0.248，样本量 1，建议先不看。
-5. **skill 一条都没验证** —— 整个 skill 主线的起点还没迈出。
-6. **迁移测试未开始** —— InsightEval / DataGovBench 都还没接。
-7. ~~`run_insightbench.mjs` 硬编码绝对路径~~ —— 本次交接已改为路径推导 +
-   环境变量覆盖 + 启动检查。
-8. **`run_on_benchmark/daco` 是搁置的探索线** —— gitlink 在册（DACO，
-   NeurIPS 2024 D&B），但磁盘上没 checkout、无代码依赖，只有
-   `benchmark_survey.md` / `benchmark_run_guide.md` 提到它。要么接着做，
-   要么明确删掉 gitlink。
+3. **precision 随 recall 上升而下滑** —— §5.2(d)。bank precision
+   0.6615→0.6423，flag-1/2 跌 0.22–0.30。是"择优留多了"还是"探索发散了"未定，
+   建议扫 `maxInsights`。
+4. **兜底修复未验证** —— §5.2(c) 的修复只过了单测，没跑真实 case（§6.1b）。
+5. **单条 GT 的 delta 不可用作证据** —— flag-4 GT7 同 prompt 重跑
+   0.70→0.20（§5.5）。这比 §5.3 的判分噪声更严重，因为它叠加了 agent 的
+   **运行间探索路径方差**。想用 per-GT 做归因必须重复测量。
+6. **flag-6..10 完全没在 pi 版上跑过** —— v8 跑了 10 个，pi 只跑了 5 个。
+7. **summary 分数不可用** —— `pi_v4` 里 0.72 ± 0.271，样本量 1，建议先不看。
+8. **skill 一条都没验证** —— 整个 skill 主线的起点还没迈出。
+9. **迁移测试未开始** —— InsightEval / DataGovBench 都还没接。
+10. ~~`run_insightbench.mjs` 硬编码绝对路径~~ —— 本次交接已改为路径推导 +
+    环境变量覆盖 + 启动检查。
+11. **`run_on_benchmark/daco` 是搁置的探索线** —— gitlink 在册（DACO，
+    NeurIPS 2024 D&B），但磁盘上没 checkout、无代码依赖，只有
+    `benchmark_survey.md` / `benchmark_run_guide.md` 提到它。要么接着做，
+    要么明确删掉 gitlink。
 
 ---
 

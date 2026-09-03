@@ -3,3 +3,6 @@ node_modules/
 
 # worker 落地的 SQLite 临时库
 *.db
+
+# agent 跑分时 Python 代码落地的图
+*.png
