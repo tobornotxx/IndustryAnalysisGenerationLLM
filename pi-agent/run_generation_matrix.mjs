@@ -19,7 +19,11 @@ const experimentId = arg("experiment", "v41_baseline");
 const split = validateDataSplit(arg("split", "dev-contaminated"));
 const outRoot = arg("out-root", `${REPO}/results/experiments`);
 const layers = arg("layers", "3");
+const questions = arg("questions", "2");
 const maxQuestions = arg("max-questions", "");
+const poolSize = arg("pool", "4");
+const maxInsights = arg("max-insights", "10");
+const summarySamples = arg("summary-samples", "3");
 const useInsightBank = arg("use-insight-bank", "1");
 const goalSufficiency = arg("goal-sufficiency", "1");
 
@@ -49,7 +53,11 @@ for (const systemId of systems) {
 }
 
 if (dryRun) {
-  console.log(JSON.stringify({ experiment_id: experimentId, split, tasks }, null, 2));
+  console.log(JSON.stringify({
+    experiment_id: experimentId, split,
+    config: { layers, questions, max_questions: maxQuestions || null, pool: poolSize, max_insights: maxInsights, summary_samples: summarySamples },
+    tasks,
+  }, null, 2));
   process.exit(0);
 }
 
@@ -64,6 +72,8 @@ for (const task of tasks) {
     "generate_insightbench.mjs", "--flag", String(task.flag), "--experiment", experimentId,
     "--system", task.systemId, "--agent-run", String(task.agentRun), "--layers", layers,
     "--split", split,
+    "--questions", questions, "--pool", poolSize,
+    "--max-insights", maxInsights, "--summary-samples", summarySamples,
     "--out-root", outRoot, "--use-skills", task.systemId === "pi-core-skills" ? "1" : "0",
     "--use-insight-bank", useInsightBank, "--goal-sufficiency", goalSufficiency,
   ];
