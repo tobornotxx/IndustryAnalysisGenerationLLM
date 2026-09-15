@@ -65,6 +65,8 @@
 
 ## 2. 建议的正式实验矩阵
 
+数据清单已冻结在 [`run_on_benchmark/splits/thesis_split_v1.json`](../run_on_benchmark/splits/thesis_split_v1.json)：`flag-1` 至 `flag-10` 为 `dev-contaminated`，第一轮 `source-valid` 为 `flag-11`、`flag-12`。
+
 先做不调用 API 的 dry-run，确认路径、模型、split 和预算。之后正式运行建议分三步。
 
 ### A. 小规模方差与成本试验
