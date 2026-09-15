@@ -2,6 +2,21 @@
 
 在 InsightBench / DACO benchmark 上运行和评估我们的 Agent。
 
+## 官方 AgentPoirot 基线
+
+ServiceNow 的 Apache-2.0 官方实现固定为子模块 `agent-poirot`。适配层不改它的
+编排和 prompts，只将原本限定 GPT 的传输函数替换为其他系统共用的 DeepSeek
+V4.1 Flash OpenAI-compatible endpoint。
+
+```bash
+git submodule update --init run_on_benchmark/agent-poirot
+python -m run_on_benchmark.run_agentpoirot --csv data.csv --goal "..." \
+  --out results/dry-run --dry-run
+```
+
+`--dry-run` 只验证输入和固定版本，不调用 API。官方仓库没有暴露完整的 summary
+生成入口，因此这个基线只参与 insight 指标比较，不额外拼接非官方 summary。
+
 ## 目录结构
 
 ```
