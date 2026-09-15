@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 CANONICAL_DEEPSEEK_MODEL = "deepseek-flash"
+DEFAULT_SCORER_ID = "local-deepseek-v41-nonthinking-v1"
 DEPRECATED_ALIASES = {
     "deepseek-v4-flash": CANONICAL_DEEPSEEK_MODEL,
     "deepseek-v4-flash-vision-exp": CANONICAL_DEEPSEEK_MODEL,

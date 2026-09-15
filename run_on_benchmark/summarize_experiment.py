@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .experiment_io import read_json, write_json_exclusive
+from .scorer_config import DEFAULT_SCORER_ID
 
 
 def nested(value: dict, dotted: str) -> Any:
@@ -69,7 +70,7 @@ def summarize_experiment(
     experiment_dir: Path,
     *,
     metric: str = "semantic.primary.f1",
-    scorer_id: str = "local-deepseek-v41",
+    scorer_id: str = DEFAULT_SCORER_ID,
     baseline: str | None = None,
     challenger: str | None = None,
 ) -> dict:
@@ -153,7 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--experiment-dir", type=Path, required=True)
     parser.add_argument("--metric", default="semantic.primary.f1")
-    parser.add_argument("--scorer-id", default="local-deepseek-v41")
+    parser.add_argument("--scorer-id", default=DEFAULT_SCORER_ID)
     parser.add_argument("--baseline")
     parser.add_argument("--challenger")
     parser.add_argument("--output", type=Path)

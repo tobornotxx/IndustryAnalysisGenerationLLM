@@ -13,6 +13,7 @@ from typing import Any
 
 from .experiment_io import read_json, write_json_exclusive
 from .deterministic_metrics import evaluate_deterministic
+from .scorer_config import DEFAULT_SCORER_ID
 
 
 def load_ground_truth(benchmark_dir: Path, case_id: str) -> dict[str, Any]:
@@ -23,7 +24,7 @@ def load_ground_truth(benchmark_dir: Path, case_id: str) -> dict[str, Any]:
 
 def score_prediction(
     *, prediction_path: Path, benchmark_dir: Path, judge_run: int,
-    scorer_id: str = "local-deepseek-v41", scorer_module: ModuleType | Any | None = None,
+    scorer_id: str = DEFAULT_SCORER_ID, scorer_module: ModuleType | Any | None = None,
 ) -> Path:
     if judge_run < 1:
         raise ValueError("judge_run must be >= 1")
@@ -85,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prediction", type=Path, required=True)
     parser.add_argument("--benchmark-dir", type=Path, required=True)
     parser.add_argument("--judge-run", type=int, required=True)
-    parser.add_argument("--scorer-id", default="local-deepseek-v41")
+    parser.add_argument("--scorer-id", default=DEFAULT_SCORER_ID)
     return parser
 
 

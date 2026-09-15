@@ -28,6 +28,7 @@
 ### 无额外 LLM 调用的指标与统计
 
 - 本地指标：双向 token overlap、ROUGE-1、ROUGE-L、数字事实覆盖、输出数量/长度/重复率。
+- 正式本地 Judge 协议固定为 `local-deepseek-v41-nonthinking-v1`；关闭默认长思考并限制 50 个输出 token，旧思考模式分数不得混入。
 - 官方 InsightEval 指标：直接加载作者仓库的 ROUGE-1 最佳匹配 recall、precision、Insight F1。
 - 聚合顺序为 Judge 重复 → Agent 重复 → case，避免把一次随机波动当成独立样本。
 - 汇总包含 case-level bootstrap 95% CI、配对置换检验、Cohen's dz、Agent 方差、Judge 方差和失败状态。
@@ -143,4 +144,3 @@ npm --prefix pi-agent test
 3. 确认 2×2 小试预算后再启用 API。
 4. 小试通过后冻结配置，执行 3×3 主实验与一次目标域迁移。
 5. 最后生成盲评文档，由人工复核代表性样本。
-

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .experiment_io import write_json_exclusive
+from .scorer_config import DEFAULT_SCORER_ID
 
 
 def plan_score_tasks(experiment_dir: Path, judge_runs: int, scorer_id: str) -> list[dict]:
@@ -33,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--experiment-dir", type=Path, required=True)
     parser.add_argument("--benchmark-dir", type=Path, required=True)
     parser.add_argument("--judge-runs", type=int, default=3)
-    parser.add_argument("--scorer-id", default="local-deepseek-v41")
+    parser.add_argument("--scorer-id", default=DEFAULT_SCORER_ID)
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
