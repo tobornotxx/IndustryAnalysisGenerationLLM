@@ -9,7 +9,7 @@ export function sha256Files(paths) {
   const hash = createHash("sha256");
   for (const path of [...paths].sort()) {
     if (!existsSync(path)) continue;
-    hash.update(path.replaceAll("\\", "/"));
+    hash.update(path.split(/[\\/]/).slice(-2).join("/"));
     hash.update("\0");
     hash.update(readFileSync(path));
     hash.update("\0");
@@ -18,7 +18,7 @@ export function sha256Files(paths) {
 }
 
 export function gitState(cwd) {
-  const run = (args) => spawnSync("git", args, { cwd, encoding: "utf8" });
+  const run = (args) => spawnSync("git", ["-c", `safe.directory=${cwd}`, ...args], { cwd, encoding: "utf8" });
   const head = run(["rev-parse", "HEAD"]);
   const status = run(["status", "--porcelain"]);
   return {

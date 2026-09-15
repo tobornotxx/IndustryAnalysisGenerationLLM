@@ -37,3 +37,17 @@ def write_json_exclusive(path: Path, value: dict[str, Any]) -> None:
             Path(temporary).unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def write_json_atomic(path: Path, value: dict[str, Any]) -> None:
+    """Atomically replace a mutable status file inside an already unique run."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".manifest-", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)

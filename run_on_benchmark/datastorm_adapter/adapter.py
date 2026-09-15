@@ -121,8 +121,7 @@ class DataStormAdapter:
         # 构造 LLMConfig：只覆盖显式传入的参数，其余由 llm_config.json + 环境变量提供
         llm_kwargs: dict = {}
         if model_name:
-            llm_kwargs["exploration_model"] = model_name
-            llm_kwargs["report_model"] = model_name
+            llm_kwargs["model_name"] = model_name
         if openai_api_key:
             llm_kwargs["api_key"] = openai_api_key
         if api_base:
