@@ -10,6 +10,7 @@ from types import ModuleType
 from typing import Any
 
 from .experiment_io import read_json, write_json_exclusive
+from .deterministic_metrics import evaluate_deterministic
 
 
 def load_ground_truth(benchmark_dir: Path, case_id: str) -> dict[str, Any]:
@@ -59,6 +60,7 @@ def score_prediction(
         "scorer": scorer.get_scorer_config(),
         "semantic": semantic,
         "summary": summary_score,
+        "deterministic": evaluate_deterministic(prediction, gt),
         "usage": scorer.get_usage_stats(),
     }
     output_path = prediction_path.parent / "scores" / scorer_id / f"judge_run_{judge_run}.json"
