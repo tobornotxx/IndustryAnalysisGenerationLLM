@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
@@ -38,13 +40,23 @@ def score_prediction(
         "bank": prediction.get("pred_insights_bank") or [],
     }
     semantic = {}
+    scored_modes: dict[str, tuple[str, dict[str, Any]]] = {}
     for name, items in modes.items():
         if items:
-            result = scorer.score_insight_matrix(items, gt["insights"])
-            semantic[name] = {
-                "recall": result["recall"], "precision": result["precision"],
-                "f1": result["f1"], "n_pred": len(items), "matrix": result["matrix"],
-            }
+            fingerprint = hashlib.sha256(
+                json.dumps(items, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if fingerprint in scored_modes:
+                source_name, source_result = scored_modes[fingerprint]
+                semantic[name] = {**source_result, "reused_from": source_name}
+            else:
+                result = scorer.score_insight_matrix(items, gt["insights"])
+                normalized = {
+                    "recall": result["recall"], "precision": result["precision"],
+                    "f1": result["f1"], "n_pred": len(items), "matrix": result["matrix"],
+                }
+                semantic[name] = normalized
+                scored_modes[fingerprint] = (name, normalized)
     pred_summary = prediction.get("pred_summary") or ""
     summary_score = (
         scorer.score_summary(pred_summary, gt["summary"])

@@ -7,8 +7,11 @@ from run_on_benchmark.score_prediction import score_prediction
 
 
 class FakeScorer:
+    insight_calls = 0
+
     @staticmethod
     def score_insight_matrix(pred, gt):
+        FakeScorer.insight_calls += 1
         return {"recall": 0.5, "precision": 0.4, "f1": 4 / 9, "matrix": [[0.5]]}
 
     @staticmethod
@@ -26,6 +29,7 @@ class FakeScorer:
 
 class OfflineScoreTests(unittest.TestCase):
     def setUp(self):
+        FakeScorer.insight_calls = 0
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         case_dir = self.root / "benchmark" / "data" / "notebooks"
@@ -54,6 +58,8 @@ class OfflineScoreTests(unittest.TestCase):
         self.assertEqual(score["scorer"]["model"], "fake-judge")
         self.assertEqual(score["semantic"]["primary"]["recall"], 0.5)
         self.assertEqual(score["judge_run"], 1)
+        self.assertEqual(FakeScorer.insight_calls, 1)
+        self.assertEqual(score["semantic"]["raw"]["reused_from"], "primary")
 
     def test_score_artifact_cannot_be_overwritten(self):
         kwargs = dict(
