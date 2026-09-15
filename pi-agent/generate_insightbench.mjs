@@ -90,7 +90,7 @@ try {
   const result = await explore({
     csvPath, userCsvPath, tableName: "incidents", goal, maxLayers: layers,
     questionsPerLayer: questions, maxQuestions, poolSize, model, pythonBin: PY,
-    workerScript: new URL("./python/worker.py", import.meta.url).pathname,
+    workerScript: fileURLToPath(new URL("./python/worker.py", import.meta.url)),
     useSkills, useInsightBank, goalSufficiencyCheck, maxInsights, summarySamples,
     onLog: (message) => console.log("  ·", message),
   });
