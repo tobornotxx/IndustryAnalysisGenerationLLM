@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -19,6 +18,10 @@ from typing import Any
 
 import numpy as np
 from openai import OpenAI
+try:  # package import and legacy ``sys.path + import unified_scorer`` both work
+    from .scorer_config import load_scorer_config
+except ImportError:  # pragma: no cover - exercised by pi-agent's subprocess entrypoint
+    from scorer_config import load_scorer_config
 
 logger = logging.getLogger(__name__)
 
@@ -26,29 +29,17 @@ logger = logging.getLogger(__name__)
 # 配置加载
 # ============================================================
 
-_CFG_PATH = (
+_LEGACY_CFG_PATH = (
     Path(__file__).resolve().parents[2] / "MyDataStorm" / "datastorm" / "llm_config.json"
 )
 
 
-def _load_config() -> dict:
-    try:
-        if _CFG_PATH.is_file():
-            return json.loads(_CFG_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-    return {}
-
-
-_CFG = _load_config()
-# llm_config.json 现为 {default: {...}, scenarios: {...}} 结构; 打分器取 default 块。
-_DEFAULT_CFG = _CFG.get("default") or _CFG
-
-_SCORER_API_KEY = _DEFAULT_CFG.get("api_key") or os.getenv("OPENAI_API_KEY", "")
-_SCORER_API_BASE = _DEFAULT_CFG.get("api_base") or os.getenv("OPENAI_API_BASE", "")
-_SCORER_MODEL = _DEFAULT_CFG.get("model_name") or _DEFAULT_CFG.get("model") or "deepseek-v4-pro"
-_SCORER_TEMPERATURE = float(_DEFAULT_CFG.get("temperature", 0.7))
-_SCORER_MAX_TOKENS = int(_DEFAULT_CFG.get("max_completion_tokens") or _DEFAULT_CFG.get("max_tokens") or 4096)
+_SCORER_CFG = load_scorer_config(legacy_path=_LEGACY_CFG_PATH)
+_SCORER_API_KEY = _SCORER_CFG["api_key"]
+_SCORER_API_BASE = _SCORER_CFG["api_base"]
+_SCORER_MODEL = _SCORER_CFG["model"]
+_SCORER_TEMPERATURE = _SCORER_CFG["temperature"]
+_SCORER_MAX_TOKENS = _SCORER_CFG["max_tokens"]
 
 # Monte Carlo 采样次数
 _MC_SAMPLES = 5

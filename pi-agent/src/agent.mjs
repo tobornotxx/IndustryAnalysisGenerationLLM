@@ -17,6 +17,11 @@ import { Type } from "@sinclair/typebox";
 import { PyWorkerPool } from "./py-worker.mjs";
 import { Planner } from "./planner.mjs";
 import {
+  DEEPSEEK_CANONICAL_MODEL,
+  canonicalizeDeepSeekModel,
+  makeDeepSeekV41FlashModel,
+} from "./model-config.mjs";
+import {
   filterInsights,
   generateThesis,
   refineThesis,
@@ -44,8 +49,7 @@ import {
  * 恒等式 input + cacheRead = totalTokens - output 两轮都成立。
  * 因此命中率的分母必须是 (input + cacheRead)，用 input 会算出 >1 的值。
  *
- * 命中的 token 计价只有未命中的 1/50（deepseek-v4-flash: cacheRead 0.0028
- * vs input 0.14），cost 字段已含此折扣，直接累加即可。
+ * cost 字段已按运行时模型价目表计算，直接累加即可。
  */
 export class UsageTracker {
   constructor() {
@@ -88,10 +92,15 @@ export class UsageTracker {
 }
 
 /** 建 DeepSeek 模型句柄 + 与 pi 的 streamFn 桥接。 */
-export function createDeepSeek({ model = "deepseek-v4-flash" } = {}) {
+export function createDeepSeek({ model = DEEPSEEK_CANONICAL_MODEL, now = new Date() } = {}) {
   const models = createModels();
   models.setProvider(deepseekProvider());
-  const handle = models.getModel("deepseek", model);
+  const canonical = canonicalizeDeepSeekModel(model);
+  let handle = models.getModel("deepseek", canonical);
+  if (!handle && canonical === DEEPSEEK_CANONICAL_MODEL) {
+    const legacy = models.getModel("deepseek", "deepseek-v4-flash");
+    handle = makeDeepSeekV41FlashModel(legacy, now);
+  }
   if (!handle) throw new Error(`model not found: deepseek/${model}`);
   return {
     models,
@@ -299,7 +308,7 @@ export async function explore({
   maxLayers = 3,
   questionsPerLayer = 2,
   poolSize = 4,
-  model = "deepseek-v4-flash",
+  model = DEEPSEEK_CANONICAL_MODEL,
   pythonBin,
   workerScript,
   loadMode = "isolated",

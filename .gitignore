@@ -46,3 +46,4 @@ venv.bak/
 /benchmarkresults
 # API keys / 本地 LLM 配置（含真实密钥，切勿提交）
 llm_config.json
+run_on_benchmark/scorer_config.json
