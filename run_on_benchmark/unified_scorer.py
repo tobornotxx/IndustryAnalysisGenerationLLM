@@ -40,6 +40,20 @@ _SCORER_API_BASE = _SCORER_CFG["api_base"]
 _SCORER_MODEL = _SCORER_CFG["model"]
 _SCORER_TEMPERATURE = _SCORER_CFG["temperature"]
 _SCORER_MAX_TOKENS = _SCORER_CFG["max_tokens"]
+_SCORER_THINKING = _SCORER_CFG["thinking"]
+
+
+def _generation_controls(max_tokens: int) -> dict[str, Any]:
+    """Controls supported by current DeepSeek Chat Completions.
+
+    G-Eval needs a short rating, not agent-style reasoning.  V4.1 Flash defaults
+    to thinking mode, so leaving this implicit can spend thousands of hidden
+    reasoning tokens on a one-token judgement.
+    """
+    return {
+        "max_tokens": min(_SCORER_MAX_TOKENS, max_tokens),
+        "extra_body": {"thinking": {"type": _SCORER_THINKING}},
+    }
 
 # Monte Carlo 采样次数
 _MC_SAMPLES = 5
@@ -244,7 +258,7 @@ def _detect_logprobs(client: OpenAI, model: str) -> bool:
                 {"role": "user", "content": prompt},
             ],
             temperature=0,
-            max_completion_tokens=20,
+            **_generation_controls(20),
             logprobs=True,
             top_logprobs=3,
         )
@@ -274,7 +288,7 @@ def _score_pair_logprobs(client: OpenAI, model: str, answer: str, gt_answer: str
             {"role": "user", "content": prompt},
         ],
         temperature=0,
-        max_completion_tokens=50,
+        **_generation_controls(50),
         logprobs=True,
         top_logprobs=5,
     )
@@ -318,7 +332,7 @@ def _score_pair_monte_carlo(client: OpenAI, model: str, answer: str, gt_answer: 
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.3,
-                max_completion_tokens=50,
+                **_generation_controls(50),
             )
             _record_usage(response)
             raw = response.choices[0].message.content or ""
@@ -452,4 +466,6 @@ def get_scorer_config() -> dict[str, str]:
         "logprobs": str(_logprobs_supported),
         "mc_samples": str(_MC_SAMPLES) if not _logprobs_supported else "N/A",
         "prompt_order": _PROMPT_ORDER,
+        "thinking": _SCORER_THINKING,
+        "max_tokens": str(_SCORER_MAX_TOKENS),
     }

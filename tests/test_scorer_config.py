@@ -16,6 +16,8 @@ class ScorerConfigTests(unittest.TestCase):
             cfg = load_scorer_config(env={}, legacy_path=legacy)
         self.assertEqual(cfg["model"], "deepseek-flash")
         self.assertEqual(cfg["api_key"], "legacy-key")
+        self.assertEqual(cfg["thinking"], "disabled")
+        self.assertEqual(cfg["max_tokens"], 50)
 
     def test_environment_has_priority_and_alias_is_normalized(self):
         cfg = load_scorer_config(
@@ -23,6 +25,15 @@ class ScorerConfigTests(unittest.TestCase):
         )
         self.assertEqual(cfg["model"], "deepseek-flash")
         self.assertEqual(cfg["api_key"], "judge-key")
+
+    def test_explicit_thinking_mode_is_recorded(self):
+        cfg = load_scorer_config(env={"SCORER_THINKING": "enabled", "SCORER_MAX_TOKENS": "20"})
+        self.assertEqual(cfg["thinking"], "enabled")
+        self.assertEqual(cfg["max_tokens"], 20)
+
+    def test_invalid_thinking_mode_is_rejected(self):
+        with self.assertRaises(ValueError):
+            load_scorer_config(env={"SCORER_THINKING": "sometimes"})
 
 
 if __name__ == "__main__":

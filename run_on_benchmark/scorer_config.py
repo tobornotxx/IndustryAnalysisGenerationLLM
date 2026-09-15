@@ -45,6 +45,9 @@ def load_scorer_config(
     legacy_default = legacy.get("default") or legacy
 
     model = env.get("SCORER_MODEL") or cfg.get("model") or CANONICAL_DEEPSEEK_MODEL
+    thinking = env.get("SCORER_THINKING") or cfg.get("thinking") or "disabled"
+    if thinking not in {"enabled", "disabled"}:
+        raise ValueError("SCORER_THINKING must be 'enabled' or 'disabled'")
     return {
         "api_key": (
             env.get("SCORER_API_KEY")
@@ -61,5 +64,6 @@ def load_scorer_config(
         ),
         "model": canonicalize_model_name(model),
         "temperature": float(env.get("SCORER_TEMPERATURE") or cfg.get("temperature") or 0),
-        "max_tokens": int(env.get("SCORER_MAX_TOKENS") or cfg.get("max_tokens") or 4096),
+        "max_tokens": int(env.get("SCORER_MAX_TOKENS") or cfg.get("max_tokens") or 50),
+        "thinking": thinking,
     }
