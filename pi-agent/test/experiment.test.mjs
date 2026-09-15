@@ -4,7 +4,8 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildRunDirectory, createRunDirectory, makeManifest, sha256Files, writeJsonAtomic,
+  buildRunDirectory, createRunDirectory, makeManifest, sha256Files, validateDataSplit,
+  writeJsonAtomic,
 } from "../src/experiment.mjs";
 
 test("run directory encodes experiment, system, case and repeat", () => {
@@ -13,6 +14,12 @@ test("run directory encodes experiment, system, case and repeat", () => {
     caseId: "flag-11", agentRun: 3,
   });
   assert.match(path.replaceAll("\\", "/"), /results\/exp\/pi-core\/flag-11\/agent_run_3$/);
+});
+
+test("data split names prevent accidental test claims", () => {
+  assert.equal(validateDataSplit("dev-contaminated"), "dev-contaminated");
+  assert.equal(validateDataSplit("target-test"), "target-test");
+  assert.throws(() => validateDataSplit("test"), /unsupported data split/);
 });
 
 test("existing run directories cannot be overwritten", () => {

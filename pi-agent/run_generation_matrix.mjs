@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { buildRunDirectory } from "./src/experiment.mjs";
+import { buildRunDirectory, validateDataSplit } from "./src/experiment.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.REPO_ROOT ?? resolve(HERE, "..");
@@ -16,6 +16,7 @@ const flags = arg("flags", "11,12").split(",").map(Number);
 const systems = arg("systems", "pi-core,pi-core-skills").split(",").filter(Boolean);
 const repeats = Number(arg("agent-runs", 3));
 const experimentId = arg("experiment", "v41_baseline");
+const split = validateDataSplit(arg("split", "dev-contaminated"));
 const outRoot = arg("out-root", `${REPO}/results/experiments`);
 const layers = arg("layers", "3");
 const maxQuestions = arg("max-questions", "");
@@ -48,7 +49,7 @@ for (const systemId of systems) {
 }
 
 if (dryRun) {
-  console.log(JSON.stringify({ experiment_id: experimentId, tasks }, null, 2));
+  console.log(JSON.stringify({ experiment_id: experimentId, split, tasks }, null, 2));
   process.exit(0);
 }
 
@@ -62,6 +63,7 @@ for (const task of tasks) {
   const args = [
     "generate_insightbench.mjs", "--flag", String(task.flag), "--experiment", experimentId,
     "--system", task.systemId, "--agent-run", String(task.agentRun), "--layers", layers,
+    "--split", split,
     "--out-root", outRoot, "--use-skills", task.systemId === "pi-core-skills" ? "1" : "0",
     "--use-insight-bank", useInsightBank, "--goal-sufficiency", goalSufficiency,
   ];

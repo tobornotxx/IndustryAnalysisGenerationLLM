@@ -15,6 +15,7 @@ from typing import Any, Callable
 from .experiment_io import read_json, write_json_atomic, write_json_exclusive
 
 SUPPORTED_SYSTEMS = ("datastorm-reproduction", "agentpoirot-official")
+DATA_SPLITS = ("dev-contaminated", "source-train", "source-valid", "source-test", "target-test")
 
 
 def git_state(path: Path) -> dict:
@@ -91,6 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--benchmark-dir", type=Path, required=True)
     parser.add_argument("--case", required=True)
     parser.add_argument("--experiment", default="v41_baseline")
+    parser.add_argument("--split", choices=DATA_SPLITS, default="dev-contaminated")
     parser.add_argument("--agent-run", type=int, default=1)
     parser.add_argument("--out-root", type=Path, default=Path("results/experiments"))
     parser.add_argument("--model", default="deepseek-flash")
@@ -118,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         "schema_version": 1, "run_id": str(uuid.uuid4()),
         "created_at": datetime.now(timezone.utc).isoformat(), "status": "planned",
         "experiment_id": args.experiment, "system_id": args.system, "case_id": case_id,
+        "split": args.split,
         "agent_run": args.agent_run, "generation_model": args.model, "scorer_model": None,
         "benchmark": git_state(args.benchmark_dir),
         "repository": git_state(repository_root), "system_source": git_state(system_root),

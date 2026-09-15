@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from run_on_benchmark.generate_baseline import generate, run_directory
+from run_on_benchmark.generate_baseline import build_parser, generate, run_directory
 
 
 class BaselineGenerationTests(unittest.TestCase):
@@ -31,6 +31,19 @@ class BaselineGenerationTests(unittest.TestCase):
             )
         self.assertEqual(result["pred_insights"], ["ok"])
         self.assertEqual(calls[0]["goal"], "test goal")
+
+    def test_split_defaults_to_contaminated_development_data(self):
+        args = build_parser().parse_args([
+            "--system", "agentpoirot-official", "--benchmark-dir", ".", "--case", "11",
+        ])
+        self.assertEqual(args.split, "dev-contaminated")
+
+    def test_uncontrolled_split_name_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args([
+                "--system", "agentpoirot-official", "--benchmark-dir", ".", "--case", "11",
+                "--split", "test",
+            ])
 
 
 if __name__ == "__main__":

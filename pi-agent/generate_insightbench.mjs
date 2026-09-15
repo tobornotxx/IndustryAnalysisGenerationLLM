@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { explore } from "./src/agent.mjs";
 import {
   buildRunDirectory, createRunDirectory, gitState, makeManifest, sha256Files, writeJsonAtomic,
+  validateDataSplit,
 } from "./src/experiment.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,7 @@ const maxInsights = Number(arg("max-insights", 12));
 const summarySamples = Number(arg("summary-samples", 3));
 const agentRun = Number(arg("agent-run", 1));
 const experimentId = arg("experiment", "v41_baseline");
+const split = validateDataSplit(arg("split", "dev-contaminated"));
 const useSkills = arg("use-skills", process.env.USE_SKILLS ?? "1") !== "0";
 const useInsightBank = arg("use-insight-bank", "1") !== "0";
 const goalSufficiencyCheck = arg("goal-sufficiency", "1") !== "0";
@@ -65,6 +67,7 @@ const config = {
 };
 const baseManifest = makeManifest({
   experiment_id: experimentId, system_id: systemId, case_id: caseId,
+  split,
   agent_run: agentRun, status: "planned", generation_model: model,
   scorer_model: null, repository: repoGit, benchmark: benchmarkGit,
   prompt_hash: sha256Files(promptFiles), skill_hash: skillPath ? sha256Files([skillPath]) : null,
@@ -96,7 +99,7 @@ try {
     return node ? `${node.question} ${text}`.trim() : text;
   });
   const prediction = {
-    schema_version: 1, system_id: systemId, case_id: caseId, goal,
+    schema_version: 1, system_id: systemId, case_id: caseId, split, goal,
     generation_model: model, pred_insights: bank.length ? bank : raw,
     pred_insights_raw: raw, pred_insights_bank: bank, pred_summary: result.summary,
   };

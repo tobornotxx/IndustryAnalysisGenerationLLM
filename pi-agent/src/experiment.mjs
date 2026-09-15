@@ -4,6 +4,16 @@ import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 export const MANIFEST_SCHEMA_VERSION = 1;
+export const DATA_SPLITS = Object.freeze([
+  "dev-contaminated", "source-train", "source-valid", "source-test", "target-test",
+]);
+
+export function validateDataSplit(split) {
+  if (!DATA_SPLITS.includes(split)) {
+    throw new Error(`unsupported data split: ${split}; expected one of ${DATA_SPLITS.join(", ")}`);
+  }
+  return split;
+}
 
 export function sha256Files(paths) {
   const hash = createHash("sha256");
