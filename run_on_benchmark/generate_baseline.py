@@ -69,7 +69,8 @@ def load_benchmark_case(benchmark_kind: str, benchmark_dir: Path, case_id: str) 
 
 def generate(
     *, system: str, benchmark_dir: Path, case_id: str, run_dir: Path,
-    model: str, max_layers: int, questions: int, max_insights: int = 10,
+    model: str, max_layers: int, questions: int, max_questions: int = 6,
+    max_insights: int = 10,
     benchmark_kind: str = "insightbench",
     runner: Callable[..., dict] | None = None,
 ) -> dict:
@@ -93,6 +94,7 @@ def generate(
         artifacts.mkdir()
         adapter = DataStormAdapter(
             model_name=model, max_layers=max_layers, questions_per_layer=questions,
+            max_questions=max_questions, max_insights=max_insights,
             savedir=str(artifacts), summary_samples=3,
         )
         insights, summary = adapter.get_insights(
@@ -121,6 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default="deepseek-flash")
     parser.add_argument("--max-layers", type=int, default=3)
     parser.add_argument("--questions", type=int, default=2)
+    parser.add_argument("--max-questions", type=int, default=6)
     parser.add_argument("--max-insights", type=int, default=10)
     parser.add_argument("--dry-run", action="store_true")
     return parser
@@ -157,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
         "benchmark": git_state(args.benchmark_dir),
         "repository": git_state(repository_root), "system_source": git_state(system_root),
         "prompt_hash": sha256_files(prompt_files),
-        "config": {"max_layers": args.max_layers, "questions_per_layer": args.questions, "max_insights": args.max_insights},
+        "config": {"max_layers": args.max_layers, "questions_per_layer": args.questions, "max_questions": args.max_questions, "max_insights": args.max_insights},
     }
     if args.dry_run:
         print(json.dumps({"run_directory": str(run_dir.resolve()), "manifest": plan}, ensure_ascii=False, indent=2))
@@ -170,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         prediction = generate(
             system=args.system, benchmark_dir=args.benchmark_dir, case_id=case_id,
             run_dir=run_dir, model=args.model, max_layers=args.max_layers, questions=args.questions,
-            max_insights=args.max_insights,
+            max_questions=args.max_questions, max_insights=args.max_insights,
             benchmark_kind=args.benchmark_kind,
         )
         prediction.setdefault("benchmark_id", case["benchmark_id"])

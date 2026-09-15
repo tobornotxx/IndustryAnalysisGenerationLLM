@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default="deepseek-flash")
     parser.add_argument("--max-layers", type=int, default=3)
     parser.add_argument("--questions", type=int, default=2)
+    parser.add_argument("--max-questions", type=int, default=6)
     parser.add_argument("--max-insights", type=int, default=10)
     parser.add_argument("--dry-run", action="store_true")
     return parser
@@ -66,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         print(json.dumps({
             "experiment_id": args.experiment,
-            "config": {"model": args.model, "max_layers": args.max_layers, "questions": args.questions, "max_insights": args.max_insights},
+            "config": {"model": args.model, "max_layers": args.max_layers, "questions": args.questions, "max_questions": args.max_questions, "max_insights": args.max_insights},
             "tasks": [{**task, "run_dir": str(task["run_dir"])} for task in tasks],
         }, ensure_ascii=False, indent=2))
         return 0
@@ -82,7 +83,8 @@ def main(argv: list[str] | None = None) -> int:
             "--split", args.split, "--experiment", args.experiment,
             "--agent-run", str(task["agent_run"]), "--out-root", str(args.out_root),
             "--model", args.model, "--max-layers", str(args.max_layers),
-            "--questions", str(args.questions), "--max-insights", str(args.max_insights),
+            "--questions", str(args.questions), "--max-questions", str(args.max_questions),
+            "--max-insights", str(args.max_insights),
         ], check=False)
         counts["success" if result.returncode == 0 else "failed"] += 1
     print(json.dumps(counts, indent=2))

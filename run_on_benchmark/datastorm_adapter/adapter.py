@@ -82,6 +82,8 @@ class DataStormAdapter:
         model_name: str | None = None,
         max_layers: int = 3,
         questions_per_layer: int = 2,
+        max_questions: int = 0,
+        max_insights: int = 10,
         follow_up_per_layer: int | None = None,
         exploratory_per_layer: int | None = None,
         openai_api_key: str | None = None,
@@ -94,6 +96,8 @@ class DataStormAdapter:
         self.model_name = model_name
         self.max_layers = max_layers
         self.questions_per_layer = questions_per_layer
+        self.max_questions = max_questions
+        self.max_insights = max_insights
         self.follow_up_per_layer = follow_up_per_layer if follow_up_per_layer is not None else questions_per_layer
         self.exploratory_per_layer = exploratory_per_layer if exploratory_per_layer is not None else questions_per_layer
         self.savedir = savedir
@@ -138,6 +142,8 @@ class DataStormAdapter:
                 subsequent_layer_max_questions=questions_per_layer,
                 follow_up_questions_per_layer=self.follow_up_per_layer,
                 exploratory_questions_per_layer=self.exploratory_per_layer,
+                max_total_questions=max_questions,
+                max_insights=max_insights,
                 executor_max_turns=5,
             ),
             report=ReportConfig(
