@@ -1,16 +1,15 @@
 /** Generate one immutable pi-agent prediction. This command never scores it. */
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { explore } from "./src/agent.mjs";
 import {
-  buildRunDirectory, createRunDirectory, gitState, makeManifest, sha256Files, writeJsonAtomic,
-  validateDataSplit,
+  buildRunDirectory, createRunDirectory, gitState, loadBenchmarkCase, makeManifest,
+  sha256Files, validateDataSplit, writeJsonAtomic,
 } from "./src/experiment.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.REPO_ROOT ?? resolve(HERE, "..");
-const BENCH = process.env.BENCH_DIR ?? `${REPO}/run_on_benchmark/insight-bench`;
 const PY = process.env.PYTHON_BIN ?? "python";
 
 function arg(name, dflt) {
@@ -19,7 +18,12 @@ function arg(name, dflt) {
 }
 const has = (name) => process.argv.includes(`--${name}`);
 
-const flagNum = Number(arg("flag", 1));
+const benchmarkKind = arg("benchmark-kind", "insightbench");
+const caseNumber = Number(arg(benchmarkKind === "insighteval" ? "instance" : "flag", 1));
+const defaultBenchmark = benchmarkKind === "insighteval"
+  ? `${REPO}/run_on_benchmark/InsightEval-official`
+  : `${REPO}/run_on_benchmark/insight-bench`;
+const BENCH = arg("benchmark-dir", process.env.BENCH_DIR ?? defaultBenchmark);
 const layers = Number(arg("layers", 3));
 const questions = Number(arg("questions", 2));
 const maxQuestionsArg = arg("max-questions", "");
@@ -29,7 +33,9 @@ const maxInsights = Number(arg("max-insights", 12));
 const summarySamples = Number(arg("summary-samples", 3));
 const agentRun = Number(arg("agent-run", 1));
 const experimentId = arg("experiment", "v41_baseline");
-const split = validateDataSplit(arg("split", "dev-contaminated"));
+const split = validateDataSplit(arg(
+  "split", benchmarkKind === "insighteval" ? "target-test" : "dev-contaminated",
+));
 const useSkills = arg("use-skills", process.env.USE_SKILLS ?? "1") !== "0";
 const useInsightBank = arg("use-insight-bank", "1") !== "0";
 const goalSufficiencyCheck = arg("goal-sufficiency", "1") !== "0";
@@ -38,18 +44,16 @@ const model = arg("model", "deepseek-flash");
 const outRoot = arg("out-root", `${REPO}/results/experiments`);
 const dryRun = has("dry-run");
 
-if (![flagNum, layers, questions, poolSize, maxInsights, summarySamples, agentRun]
+if (![caseNumber, layers, questions, poolSize, maxInsights, summarySamples, agentRun]
   .concat(maxQuestions === null ? [] : [maxQuestions]).every(Number.isFinite)) {
   throw new Error("numeric arguments must be valid numbers");
 }
 
-const caseId = `flag-${flagNum}`;
-const metaPath = `${BENCH}/data/notebooks/${caseId}.json`;
-if (!existsSync(metaPath)) throw new Error(`benchmark case not found: ${metaPath}`);
-const meta = JSON.parse(readFileSync(metaPath, "utf8"));
-const goal = meta.metadata?.goal ?? "Find interesting trends in this dataset";
-const csvPath = `${BENCH}/${meta.dataset_csv_path}`;
-const userCsvPath = meta.user_dataset_csv_path ? `${BENCH}/${meta.user_dataset_csv_path}` : null;
+if (benchmarkKind === "insighteval" && split !== "target-test") {
+  throw new Error("InsightEval is reserved for target-test and must not be used for tuning");
+}
+const benchmarkCase = loadBenchmarkCase({ benchmarkKind, benchmarkDir: BENCH, caseNumber });
+const { benchmarkId, caseId, goal, csvPath, userCsvPath } = benchmarkCase;
 if (!existsSync(csvPath)) throw new Error(`dataset not found: ${csvPath}`);
 
 const runDir = buildRunDirectory({ outRoot, experimentId, systemId, caseId, agentRun });
@@ -66,7 +70,7 @@ const config = {
   goal_sufficiency_check: goalSufficiencyCheck,
 };
 const baseManifest = makeManifest({
-  experiment_id: experimentId, system_id: systemId, case_id: caseId,
+  experiment_id: experimentId, system_id: systemId, case_id: caseId, benchmark_id: benchmarkId,
   split,
   agent_run: agentRun, status: "planned", generation_model: model,
   scorer_model: null, repository: repoGit, benchmark: benchmarkGit,
@@ -99,7 +103,7 @@ try {
     return node ? `${node.question} ${text}`.trim() : text;
   });
   const prediction = {
-    schema_version: 1, system_id: systemId, case_id: caseId, split, goal,
+    schema_version: 1, system_id: systemId, case_id: caseId, benchmark_id: benchmarkId, split, goal,
     generation_model: model, pred_insights: bank.length ? bank : raw,
     pred_insights_raw: raw, pred_insights_bank: bank, pred_summary: result.summary,
   };

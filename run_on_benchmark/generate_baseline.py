@@ -15,6 +15,7 @@ from typing import Any, Callable
 from .experiment_io import read_json, write_json_atomic, write_json_exclusive
 
 SUPPORTED_SYSTEMS = ("datastorm-reproduction", "agentpoirot-official")
+SUPPORTED_BENCHMARKS = ("insightbench", "insighteval")
 DATA_SPLITS = ("dev-contaminated", "source-train", "source-valid", "source-test", "target-test")
 
 
@@ -45,16 +46,37 @@ def run_directory(out_root: Path, experiment: str, system: str, case: str, agent
     return out_root / experiment / system / case / f"agent_run_{agent_run}"
 
 
+def load_benchmark_case(benchmark_kind: str, benchmark_dir: Path, case_id: str) -> dict[str, Any]:
+    if benchmark_kind == "insighteval":
+        from .insighteval_adapter import load_instance
+        instance_id = int(case_id.removeprefix("insighteval-"))
+        data_dir = benchmark_dir / "data" if (benchmark_dir / "data").is_dir() else benchmark_dir
+        return load_instance(instance_id, data_dir)
+    meta_path = benchmark_dir / "data" / "notebooks" / f"{case_id}.json"
+    meta = read_json(meta_path)
+    return {
+        "benchmark_id": "insightbench-overhaul",
+        "case_id": case_id,
+        "goal": (meta.get("metadata") or {}).get("goal") or "Find interesting trends in this dataset",
+        "dataset_description": (meta.get("metadata") or {}).get("dataset_description", ""),
+        "csv_path": str((benchmark_dir / meta["dataset_csv_path"]).resolve()),
+        "user_csv_path": (
+            str((benchmark_dir / meta["user_dataset_csv_path"]).resolve())
+            if meta.get("user_dataset_csv_path") else None
+        ),
+    }
+
+
 def generate(
     *, system: str, benchmark_dir: Path, case_id: str, run_dir: Path,
     model: str, max_layers: int, questions: int,
+    benchmark_kind: str = "insightbench",
     runner: Callable[..., dict] | None = None,
 ) -> dict:
-    meta_path = benchmark_dir / "data" / "notebooks" / f"{case_id}.json"
-    meta = read_json(meta_path)
-    goal = (meta.get("metadata") or {}).get("goal") or "Find interesting trends in this dataset"
-    csv_path = benchmark_dir / meta["dataset_csv_path"]
-    user_csv = benchmark_dir / meta["user_dataset_csv_path"] if meta.get("user_dataset_csv_path") else None
+    case = load_benchmark_case(benchmark_kind, benchmark_dir, case_id)
+    goal = case["goal"]
+    csv_path = Path(case["csv_path"])
+    user_csv = Path(case["user_csv_path"]) if case.get("user_csv_path") else None
     if runner:
         return runner(system=system, csv_path=csv_path, user_csv=user_csv, goal=goal, run_dir=run_dir)
     if system == "agentpoirot-official":
@@ -75,7 +97,7 @@ def generate(
         )
         insights, summary = adapter.get_insights(
             dataset_csv_path=str(csv_path), user_dataset_csv_path=str(user_csv) if user_csv else None,
-            goal=goal, dataset_description=(meta.get("metadata") or {}).get("dataset_description", ""),
+            goal=goal, dataset_description=case.get("dataset_description", ""),
             return_summary=True,
         )
         return {
@@ -89,10 +111,11 @@ def generate(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--system", choices=SUPPORTED_SYSTEMS, required=True)
+    parser.add_argument("--benchmark-kind", choices=SUPPORTED_BENCHMARKS, default="insightbench")
     parser.add_argument("--benchmark-dir", type=Path, required=True)
     parser.add_argument("--case", required=True)
     parser.add_argument("--experiment", default="v41_baseline")
-    parser.add_argument("--split", choices=DATA_SPLITS, default="dev-contaminated")
+    parser.add_argument("--split", choices=DATA_SPLITS)
     parser.add_argument("--agent-run", type=int, default=1)
     parser.add_argument("--out-root", type=Path, default=Path("results/experiments"))
     parser.add_argument("--model", default="deepseek-flash")
@@ -104,10 +127,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    case_id = args.case if args.case.startswith("flag-") else f"flag-{args.case}"
-    meta_path = args.benchmark_dir / "data" / "notebooks" / f"{case_id}.json"
-    if not meta_path.is_file():
-        raise SystemExit(f"benchmark case not found: {meta_path}")
+    if args.benchmark_kind == "insighteval":
+        case_id = args.case if args.case.startswith("insighteval-") else f"insighteval-{args.case}"
+        split = args.split or "target-test"
+        if split != "target-test":
+            raise SystemExit("InsightEval is reserved for target-test and must not be used for tuning")
+    else:
+        case_id = args.case if args.case.startswith("flag-") else f"flag-{args.case}"
+        split = args.split or "dev-contaminated"
+    try:
+        case = load_benchmark_case(args.benchmark_kind, args.benchmark_dir, case_id)
+    except (FileNotFoundError, ValueError) as error:
+        raise SystemExit(str(error)) from error
     run_dir = run_directory(args.out_root, args.experiment, args.system, case_id, args.agent_run)
     repository_root = Path(__file__).resolve().parents[1]
     if args.system == "agentpoirot-official":
@@ -120,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         "schema_version": 1, "run_id": str(uuid.uuid4()),
         "created_at": datetime.now(timezone.utc).isoformat(), "status": "planned",
         "experiment_id": args.experiment, "system_id": args.system, "case_id": case_id,
-        "split": args.split,
+        "benchmark_id": case["benchmark_id"], "split": split,
         "agent_run": args.agent_run, "generation_model": args.model, "scorer_model": None,
         "benchmark": git_state(args.benchmark_dir),
         "repository": git_state(repository_root), "system_source": git_state(system_root),
@@ -138,7 +169,11 @@ def main(argv: list[str] | None = None) -> int:
         prediction = generate(
             system=args.system, benchmark_dir=args.benchmark_dir, case_id=case_id,
             run_dir=run_dir, model=args.model, max_layers=args.max_layers, questions=args.questions,
+            benchmark_kind=args.benchmark_kind,
         )
+        prediction.setdefault("benchmark_id", case["benchmark_id"])
+        prediction.setdefault("case_id", case_id)
+        prediction.setdefault("split", split)
         write_json_exclusive(run_dir / "prediction.json", prediction)
         write_json_atomic(run_dir / "manifest.json", {
             **plan, "status": "success", "completed_at": datetime.now(timezone.utc).isoformat(),

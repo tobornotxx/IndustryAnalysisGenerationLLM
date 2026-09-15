@@ -15,6 +15,42 @@ export function validateDataSplit(split) {
   return split;
 }
 
+function resolveInsightEvalTable(dataRoot, rawPath) {
+  if (!rawPath) return null;
+  const candidate = resolve(dataRoot, rawPath.replace(/^\.\//, ""));
+  if (existsSync(candidate)) return candidate;
+  const alternate = candidate.replace(/data-(\d+)/, "data_$1").replace("-sysuser", "_sysuser");
+  if (existsSync(alternate)) return alternate;
+  throw new Error(`InsightEval table not found: ${candidate}`);
+}
+
+export function loadBenchmarkCase({ benchmarkKind, benchmarkDir, caseNumber }) {
+  if (benchmarkKind === "insighteval") {
+    const dataRoot = resolve(benchmarkDir, "data");
+    const annotationPath = resolve(dataRoot, "jsons", `data_${caseNumber}.json`);
+    if (!existsSync(annotationPath)) throw new Error(`benchmark case not found: ${annotationPath}`);
+    const record = JSON.parse(readFileSync(annotationPath, "utf8"));
+    return {
+      benchmarkId: "insighteval-official", caseId: `insighteval-${caseNumber}`,
+      goal: record.goal, description: record.metadata?.table_description ?? "",
+      csvPath: resolveInsightEvalTable(dataRoot, record.metadata?.table_path),
+      userCsvPath: resolveInsightEvalTable(dataRoot, record.metadata?.user_table_path),
+    };
+  }
+  if (benchmarkKind !== "insightbench") throw new Error(`unsupported benchmark: ${benchmarkKind}`);
+  const caseId = `flag-${caseNumber}`;
+  const metaPath = resolve(benchmarkDir, "data", "notebooks", `${caseId}.json`);
+  if (!existsSync(metaPath)) throw new Error(`benchmark case not found: ${metaPath}`);
+  const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+  return {
+    benchmarkId: "insightbench-overhaul", caseId,
+    goal: meta.metadata?.goal ?? "Find interesting trends in this dataset",
+    description: meta.metadata?.dataset_description ?? "",
+    csvPath: resolve(benchmarkDir, meta.dataset_csv_path),
+    userCsvPath: meta.user_dataset_csv_path ? resolve(benchmarkDir, meta.user_dataset_csv_path) : null,
+  };
+}
+
 export function sha256Files(paths) {
   const hash = createHash("sha256");
   for (const path of [...paths].sort()) {

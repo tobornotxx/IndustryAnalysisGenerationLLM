@@ -1,6 +1,9 @@
 import unittest
+import json
+import tempfile
+from pathlib import Path
 
-from run_on_benchmark.insighteval_adapter import evaluate_prediction, load_instance
+from run_on_benchmark.insighteval_adapter import evaluate_prediction, load_instance, main
 
 
 class InsightEvalAdapterTests(unittest.TestCase):
@@ -21,6 +24,19 @@ class InsightEvalAdapterTests(unittest.TestCase):
         self.assertAlmostEqual(result["insight_precision"], 1.0)
         self.assertAlmostEqual(result["insight_f1"], 1.0)
         self.assertNotEqual(result["metric_source_commit"], "unknown")
+
+    def test_cli_writes_score_once_without_api(self):
+        instance = load_instance(1)
+        with tempfile.TemporaryDirectory() as tmp:
+            prediction = Path(tmp) / "prediction.json"
+            output = Path(tmp) / "insighteval_score.json"
+            prediction.write_text(
+                json.dumps({"pred_insights": instance["reference_insights"]}), encoding="utf-8"
+            )
+            self.assertEqual(main(["--instance", "1", "--prediction", str(prediction), "--output", str(output)]), 0)
+            self.assertAlmostEqual(json.loads(output.read_text(encoding="utf-8"))["insight_f1"], 1.0)
+            with self.assertRaises(FileExistsError):
+                main(["--instance", "1", "--prediction", str(prediction), "--output", str(output)])
 
 
 if __name__ == "__main__":

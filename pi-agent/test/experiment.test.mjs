@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildRunDirectory, createRunDirectory, makeManifest, sha256Files, validateDataSplit,
+  buildRunDirectory, createRunDirectory, loadBenchmarkCase, makeManifest, sha256Files, validateDataSplit,
   writeJsonAtomic,
 } from "../src/experiment.mjs";
 
@@ -20,6 +20,20 @@ test("data split names prevent accidental test claims", () => {
   assert.equal(validateDataSplit("dev-contaminated"), "dev-contaminated");
   assert.equal(validateDataSplit("target-test"), "target-test");
   assert.throws(() => validateDataSplit("test"), /unsupported data split/);
+});
+
+test("official InsightEval cases normalize to the common target schema", () => {
+  const root = mkdtempSync(join(tmpdir(), "insighteval-case-"));
+  mkdirSync(join(root, "data", "jsons"), { recursive: true });
+  mkdirSync(join(root, "data", "csvs"), { recursive: true });
+  writeFileSync(join(root, "data", "csvs", "data_1.csv"), "value\n1\n");
+  writeFileSync(join(root, "data", "jsons", "data_1.json"), JSON.stringify({
+    goal: "Find a fact", metadata: { table_path: "./csvs/data-1.csv" },
+  }));
+  const item = loadBenchmarkCase({ benchmarkKind: "insighteval", benchmarkDir: root, caseNumber: 1 });
+  assert.equal(item.caseId, "insighteval-1");
+  assert.equal(item.benchmarkId, "insighteval-official");
+  assert.match(item.csvPath.replaceAll("\\", "/"), /data\/csvs\/data_1.csv$/);
 });
 
 test("existing run directories cannot be overwritten", () => {

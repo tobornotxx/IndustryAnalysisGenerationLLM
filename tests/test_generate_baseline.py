@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from run_on_benchmark.generate_baseline import build_parser, generate, run_directory
+from run_on_benchmark.generate_baseline import build_parser, generate, load_benchmark_case, main, run_directory
 
 
 class BaselineGenerationTests(unittest.TestCase):
@@ -36,13 +36,28 @@ class BaselineGenerationTests(unittest.TestCase):
         args = build_parser().parse_args([
             "--system", "agentpoirot-official", "--benchmark-dir", ".", "--case", "11",
         ])
-        self.assertEqual(args.split, "dev-contaminated")
+        self.assertIsNone(args.split)
 
     def test_uncontrolled_split_name_is_rejected(self):
         with self.assertRaises(SystemExit):
             build_parser().parse_args([
                 "--system", "agentpoirot-official", "--benchmark-dir", ".", "--case", "11",
                 "--split", "test",
+            ])
+
+    def test_loads_official_target_case(self):
+        official = Path(__file__).parents[1] / "run_on_benchmark" / "InsightEval-official"
+        case = load_benchmark_case("insighteval", official, "insighteval-1")
+        self.assertEqual(case["benchmark_id"], "insighteval-official")
+        self.assertEqual(case["split"], "target-test")
+
+    def test_rejects_using_target_benchmark_as_training_data(self):
+        official = Path(__file__).parents[1] / "run_on_benchmark" / "InsightEval-official"
+        with self.assertRaises(SystemExit):
+            main([
+                "--system", "agentpoirot-official", "--benchmark-kind", "insighteval",
+                "--benchmark-dir", str(official), "--case", "1", "--split", "source-train",
+                "--dry-run",
             ])
 
 

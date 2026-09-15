@@ -15,6 +15,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from .experiment_io import write_json_exclusive
+
 
 OFFICIAL_ROOT = Path(__file__).with_name("InsightEval-official")
 
@@ -108,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--instance", type=int, required=True)
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--prediction", type=Path)
+    parser.add_argument("--output", type=Path, help="Exclusively create an immutable metric artifact")
     return parser
 
 
@@ -119,6 +122,10 @@ def main(argv: list[str] | None = None) -> int:
         with args.prediction.open(encoding="utf-8") as handle:
             prediction = json.load(handle)
         result = evaluate_prediction(prediction, instance)
+        if args.output:
+            write_json_exclusive(args.output, result)
+    elif args.output:
+        raise SystemExit("--output requires --prediction")
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
