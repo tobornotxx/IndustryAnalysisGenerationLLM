@@ -8,3 +8,7 @@
 [submodule "run_on_benchmark/agent-poirot"]
 	path = run_on_benchmark/agent-poirot
 	url = https://github.com/ServiceNow/agent-poirot.git
+[submodule "run_on_benchmark/InsightEval-official"]
+	path = run_on_benchmark/InsightEval-official
+	url = https://github.com/zhenghaozhu23/InsightEval.git
+	branch = main
