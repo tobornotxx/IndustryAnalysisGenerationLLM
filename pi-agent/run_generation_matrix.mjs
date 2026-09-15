@@ -18,6 +18,9 @@ const repeats = Number(arg("agent-runs", 3));
 const experimentId = arg("experiment", "v41_baseline");
 const outRoot = arg("out-root", `${REPO}/results/experiments`);
 const layers = arg("layers", "3");
+const maxQuestions = arg("max-questions", "");
+const useInsightBank = arg("use-insight-bank", "1");
+const goalSufficiency = arg("goal-sufficiency", "1");
 
 if (!Number.isInteger(repeats) || repeats < 1 || flags.some((flag) => !Number.isInteger(flag))) {
   throw new Error("flags and agent-runs must be positive integers");
@@ -60,7 +63,9 @@ for (const task of tasks) {
     "generate_insightbench.mjs", "--flag", String(task.flag), "--experiment", experimentId,
     "--system", task.systemId, "--agent-run", String(task.agentRun), "--layers", layers,
     "--out-root", outRoot, "--use-skills", task.systemId === "pi-core-skills" ? "1" : "0",
+    "--use-insight-bank", useInsightBank, "--goal-sufficiency", goalSufficiency,
   ];
+  if (maxQuestions) args.push("--max-questions", maxQuestions);
   const result = spawnSync(process.execPath, args, { cwd: HERE, stdio: "inherit", env: process.env });
   if (result.status === 0) counts.success += 1;
   else counts.failed += 1;

@@ -21,18 +21,23 @@ const has = (name) => process.argv.includes(`--${name}`);
 const flagNum = Number(arg("flag", 1));
 const layers = Number(arg("layers", 3));
 const questions = Number(arg("questions", 2));
+const maxQuestionsArg = arg("max-questions", "");
+const maxQuestions = maxQuestionsArg === "" ? null : Number(maxQuestionsArg);
 const poolSize = Number(arg("pool", 4));
 const maxInsights = Number(arg("max-insights", 12));
 const summarySamples = Number(arg("summary-samples", 3));
 const agentRun = Number(arg("agent-run", 1));
 const experimentId = arg("experiment", "v41_baseline");
 const useSkills = arg("use-skills", process.env.USE_SKILLS ?? "1") !== "0";
+const useInsightBank = arg("use-insight-bank", "1") !== "0";
+const goalSufficiencyCheck = arg("goal-sufficiency", "1") !== "0";
 const systemId = arg("system", useSkills ? "pi-core-skills" : "pi-core");
 const model = arg("model", "deepseek-flash");
 const outRoot = arg("out-root", `${REPO}/results/experiments`);
 const dryRun = has("dry-run");
 
-if (![flagNum, layers, questions, poolSize, maxInsights, summarySamples, agentRun].every(Number.isFinite)) {
+if (![flagNum, layers, questions, poolSize, maxInsights, summarySamples, agentRun]
+  .concat(maxQuestions === null ? [] : [maxQuestions]).every(Number.isFinite)) {
   throw new Error("numeric arguments must be valid numbers");
 }
 
@@ -54,7 +59,9 @@ const promptFiles = [
 const skillPath = process.env.SKILL_PACKAGE_PATH ?? "";
 const config = {
   model, layers, questions_per_layer: questions, pool_size: poolSize,
-  max_insights: maxInsights, summary_samples: summarySamples, use_skills: useSkills,
+  max_questions: maxQuestions, max_insights: maxInsights, summary_samples: summarySamples,
+  use_skills: useSkills, use_insight_bank: useInsightBank,
+  goal_sufficiency_check: goalSufficiencyCheck,
 };
 const baseManifest = makeManifest({
   experiment_id: experimentId, system_id: systemId, case_id: caseId,
@@ -75,9 +82,10 @@ const t0 = Date.now();
 try {
   const result = await explore({
     csvPath, userCsvPath, tableName: "incidents", goal, maxLayers: layers,
-    questionsPerLayer: questions, poolSize, model, pythonBin: PY,
+    questionsPerLayer: questions, maxQuestions, poolSize, model, pythonBin: PY,
     workerScript: new URL("./python/worker.py", import.meta.url).pathname,
-    useSkills, maxInsights, summarySamples, onLog: (message) => console.log("  ·", message),
+    useSkills, useInsightBank, goalSufficiencyCheck, maxInsights, summarySamples,
+    onLog: (message) => console.log("  ·", message),
   });
   const raw = result.nodes
     .filter((node) => node.answer && !node.answer.startsWith("Execution failed"))

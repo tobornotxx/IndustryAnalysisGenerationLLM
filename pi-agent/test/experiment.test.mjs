@@ -29,3 +29,15 @@ test("atomic JSON and hashes are deterministic", () => {
   assert.equal(JSON.parse(readFileSync(path, "utf8")).run_id, "fixed");
   assert.equal(sha256Files([path]), sha256Files([path]));
 });
+
+test("ablation switches are represented by distinct run paths at the system level", () => {
+  const withoutSkills = buildRunDirectory({
+    outRoot: "results", experimentId: "ablation", systemId: "pi-core",
+    caseId: "flag-20", agentRun: 1,
+  });
+  const withSkills = buildRunDirectory({
+    outRoot: "results", experimentId: "ablation", systemId: "pi-core-skills",
+    caseId: "flag-20", agentRun: 1,
+  });
+  assert.notEqual(withoutSkills, withSkills);
+});

@@ -307,6 +307,7 @@ export async function explore({
   goal,
   maxLayers = 3,
   questionsPerLayer = 2,
+  maxQuestions = null,
   poolSize = 4,
   model = DEEPSEEK_CANONICAL_MODEL,
   pythonBin,
@@ -314,6 +315,7 @@ export async function explore({
   loadMode = "isolated",
   // ── 与原 pipeline 对齐的开关 ──
   useSkills = true,
+  useInsightBank = true,
   goalSufficiencyCheck = true,
   goalSufficiencyMinLayers = 2,
   thesisInterval = 1,
@@ -376,6 +378,7 @@ export async function explore({
     let layersRun = 0;
 
     for (let layer = 1; layer <= maxLayers; layer++) {
+      if (maxQuestions !== null && nodes.length >= maxQuestions) break;
       layersRun = layer;
 
       // ── Step 1: 生成问题 ──
@@ -400,6 +403,9 @@ export async function explore({
           ...followUps.map((q) => ({ ...q, category: "follow_up" })),
           ...exploratory.map((q) => ({ ...q, category: "exploratory" })),
         ];
+      }
+      if (maxQuestions !== null) {
+        questions = questions.slice(0, Math.max(0, maxQuestions - nodes.length));
       }
       onLog(`layer ${layer}/${maxLayers}: ${questions.length} questions`);
 
@@ -440,18 +446,24 @@ export async function explore({
       ).toFixed(1);
 
       // ── Step 3: insight bank 去重择优 ──
-      const selected = await filterInsights({
-        generateJson,
-        nodes,
-        topic: goal,
-        dbDescription: schemaContext,
-        thesis: thesis?.title ?? null,
-        maxInsights,
-        categoricalColumns: catCols,
-      }).catch((e) => {
-        onLog(`insight filter failed (${e.message}); keeping all findings`);
-        return null;
-      });
+      const selected = useInsightBank
+        ? await filterInsights({
+            generateJson,
+            nodes,
+            topic: goal,
+            dbDescription: schemaContext,
+            thesis: thesis?.title ?? null,
+            maxInsights,
+            categoricalColumns: catCols,
+          }).catch((e) => {
+            onLog(`insight filter failed (${e.message}); keeping all findings`);
+            return null;
+          })
+        : Object.fromEntries(
+            nodes
+              .filter((n) => n.answer && !n.answer.startsWith("Execution failed"))
+              .map((n) => [n.id, n.answer]),
+          );
       if (selected && Object.keys(selected).length) {
         insightBank = selected;
       } else if (Object.keys(insightBank).length) {
