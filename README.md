@@ -1,5 +1,8 @@
 # 基于 LLM 的产业分析报告生成系统
 
+> 论文实验链路的模型迁移、不可变运行、重复评分、统计、官方基线和目标域协议，见
+> [`handover/THESIS_MINIMUM_UPGRADE_STATUS.md`](handover/THESIS_MINIMUM_UPGRADE_STATUS.md)。
+
 根据多地区多维考核指标 Excel 数据，自动完成**数据分析 → 报告撰写 → 文本润色**全流程，输出结构化报告。
 
 ## 架构概览
