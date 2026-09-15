@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "generate": "node generate_insightbench.mjs"
+    "generate": "node generate_insightbench.mjs",
+    "generate:matrix": "node run_generation_matrix.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.4",
