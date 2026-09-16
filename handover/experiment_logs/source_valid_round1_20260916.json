@@ -4,7 +4,7 @@
   "split": "source-valid",
   "cases": ["flag-11", "flag-12"],
   "generation_model": "deepseek-flash",
-  "scorer_id": "local-deepseek-v41-nonthinking-v1",
+  "scorer_id": "local-deepseek-v41-thinking-v1",
   "design": {
     "successful_agent_runs_per_system_case": 2,
     "judge_runs_per_output": 2,
@@ -13,24 +13,30 @@
   },
   "systems": {
     "pi-core": {
-      "semantic_f1": 0.28029600239902785,
-      "case_f1": {"flag-11": 0.20367224080267557, "flag-12": 0.3569197639953801},
+      "semantic_f1": 0.5649759551469175,
+      "semantic_recall": 0.5574653037034645,
+      "semantic_precision": 0.5770830155992757,
+      "case_f1": {"flag-11": 0.6269723262063025, "flag-12": 0.5029795840875324},
       "successful_runs": 4,
       "other_runs": 0,
       "mean_elapsed_sec": 56.94,
       "generation_usage": {"calls": 149, "prompt_tokens": 606916, "completion_tokens": 75883, "cost_usd": 0.069432}
     },
     "pi-core-skills": {
-      "semantic_f1": 0.2691260236886792,
-      "case_f1": {"flag-11": 0.29579366114516764, "flag-12": 0.24245838623219074},
+      "semantic_f1": 0.5222474360481102,
+      "semantic_recall": 0.5312524760970591,
+      "semantic_precision": 0.5183301466843562,
+      "case_f1": {"flag-11": 0.6738719808951943, "flag-12": 0.3706228912010261},
       "successful_runs": 4,
       "other_runs": 0,
       "mean_elapsed_sec": 58.92,
       "generation_usage": {"calls": 151, "prompt_tokens": 588026, "completion_tokens": 72271, "cost_usd": 0.065427}
     },
     "datastorm-reproduction": {
-      "semantic_f1": 0.2971000845142048,
-      "case_f1": {"flag-11": 0.23077200577200577, "flag-12": 0.3634281632564038},
+      "semantic_f1": 0.46809942042476693,
+      "semantic_recall": 0.4270831456123888,
+      "semantic_precision": 0.5395551193009873,
+      "case_f1": {"flag-11": 0.4419822028137518, "flag-12": 0.49421663803578203},
       "successful_runs": 4,
       "other_runs": 1,
       "other_status": "aborted-budget-violation",
@@ -38,8 +44,10 @@
       "generation_usage": null
     },
     "agentpoirot-official": {
-      "semantic_f1": 0.29793550550825876,
-      "case_f1": {"flag-11": 0.28737508110910437, "flag-12": 0.30849592990741315},
+      "semantic_f1": 0.4538863005513498,
+      "semantic_recall": 0.5520821230737397,
+      "semantic_precision": 0.40125063805800554,
+      "case_f1": {"flag-11": 0.5174722450837349, "flag-12": 0.3903003560189647},
       "successful_runs": 4,
       "other_runs": 1,
       "other_status": "failed-missing-plot",
@@ -49,15 +57,18 @@
     }
   },
   "variance": {
-    "mean_within_output_judge_std": 0.0127838175762909,
-    "mean_within_case_agent_std": 0.105834534094129
+    "mean_within_output_judge_std": 0.014493686829384815,
+    "mean_within_case_agent_std": 0.1273449656986643
   },
   "judge_usage": {
     "judge_runs": 32,
     "calls": 1588,
-    "prompt_tokens": 906656,
-    "completion_tokens": 11116,
-    "cache_hit_tokens": 343399
+    "prompt_tokens": 946356,
+    "completion_tokens": 1152588,
+    "cache_hit_tokens": 387627,
+    "matrix_zero_rate": 0.0154,
+    "empty_recall_rows": 0,
+    "empty_precision_columns": 0
   },
   "interpretation": "Feasibility round only; n=2 source-valid cases is insufficient for performance or significance claims."
 }

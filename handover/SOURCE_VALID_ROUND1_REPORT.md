@@ -6,17 +6,17 @@
 
 实验分支：`codex/thesis-experiment-upgrades-industry`
 
-评分协议：`local-deepseek-v41-nonthinking-v1`（已判定尺度失真；本报告语义分数等待思考模式复评替换）
+评分协议：`local-deepseek-v41-thinking-v1`
 
-> **勘误（2026-09-16）：** 非思考评分器会把明确同义的复杂 insight 系统性压低，且对原始长版与忠实压缩版给出异常大的分差。本报告中的语义 Recall、Precision、F1、Summary 及其系统排序暂不可引用；运行成功率、耗时、轨迹和确定性指标不受影响。
+> **评分勘误（2026-09-16）：** 第一版报告误用了非思考评分器，导致明确同义的复杂 insight 被系统性压低到 0.2–0.3。本版已用显式思考模式对全部 16 个成功输出完成 32 次重新评分；旧 `local-deepseek-v41-nonthinking-v1` 结果保留作故障诊断，不进入本报告结论。
 
 ## 1. 结论先行
 
-这一轮证明了新的实验框架可以完整运行，并能在相同预算下比较本地 PI、PI+skills、DataSTORM 复刻版和 AgentPoirot 官方实现。但是，它没有证明任何系统稳定领先。
+这一轮证明了新的实验框架可以完整运行，并能在相同预算下比较本地 PI、PI+skills、DataSTORM 复刻版和 AgentPoirot 官方实现。在修正后的思考模式评分下，PI-core 的两 case 平均 F1 为 0.5650，高于 DataSTORM reproduction 的 0.4681 和 AgentPoirot official 的 0.4539。
 
-四个系统的语义 F1 均值集中在 0.269–0.298。DataSTORM 和 AgentPoirot 相对 PI-core 的均值优势只有 0.017 左右；PI+skills 相对 PI-core 反而低 0.011。这里只有 2 个 case，每个 case 2 次成功生成，所以这些差异不能解释为真实性能提升。
+PI-core 相对 DataSTORM reproduction 平均高 0.0969，相对 AgentPoirot official 平均高 0.1111；对 AgentPoirot 的优势在两个 case 上方向一致。这里只有 2 个 case，每个 case 2 次成功生成，因此这是一项有希望的第一轮横向结果，尚不能写成统计显著或普遍领先。
 
-相反，本轮最明确的发现是：生成随机性远大于评分器随机性。所有输出的平均 judge 标准差为 0.0128，而同一系统、同一 case 的平均 agent-run 标准差为 0.1058，约为前者的 8.3 倍。后续实验必须优先增加独立生成重复，而不是堆更多 judge 重复。
+本轮另一个明确发现是：生成随机性远大于评分器随机性。所有输出的平均 judge 标准差为 0.0145，而同一系统、同一 case 的平均 agent-run 标准差为 0.1273，约为前者的 8.8 倍。后续实验必须优先增加独立生成重复，而不是堆更多 judge 重复。
 
 论文可以继续，但论点应从“改进后得分更高”改为：
 
@@ -31,7 +31,7 @@
 - 预算：每次最多 6 个主分析问题、最多 10 条输出 insight。
 - 重复：每个系统、每个 case 取 2 次成功 agent run；每个输出做 2 次独立 judge run。
 - 生成模型：DeepSeek V4.1 Flash，API 名 `deepseek-flash`。
-- 评分模型：同一模型，但强制关闭思考模式并限制输出到 50 tokens；避免默认思考造成无意义的超长评分开销。
+- 评分模型：同一模型，显式开启思考模式，最多保留 4096 completion tokens，使复杂语义匹配与旧 G-Eval 机制一致。
 - 主指标：语义 insight precision、recall 和 F1。
 - 辅助指标：token overlap、数字覆盖、重复率、输出长度、summary 分数、运行成功率、耗时和调用量。
 - AgentPoirot 官方仓库未暴露可直接复用的 summary 生成入口，因此仅参与 insight 指标比较；它的 summary 分数不与其他系统比较。
@@ -42,10 +42,10 @@
 
 | 系统 | 语义 F1 | Recall | Precision | Token overlap F1 | 数字覆盖率 | 平均每条 insight tokens | Summary |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| PI-core | 0.2803 | 0.2750 | 0.2896 | 0.0621 | 0.8750 | 232.08 | 0.5500 |
-| PI-core + skills | 0.2691 | 0.2792 | 0.2621 | 0.0902 | 0.7500 | 133.86 | 0.4500 |
-| DataSTORM reproduction | 0.2971 | 0.2719 | 0.3458 | 0.0706 | 1.0000 | 187.29 | 0.3500 |
-| AgentPoirot official | 0.2979 | 0.3385 | 0.2700 | 0.1269 | 0.8750 | 60.57 | 不适用 |
+| PI-core | 0.5650 | 0.5575 | 0.5771 | 0.0621 | 0.8750 | 232.08 | 0.2875 |
+| PI-core + skills | 0.5222 | 0.5313 | 0.5183 | 0.0902 | 0.7500 | 133.86 | 0.4124 |
+| DataSTORM reproduction | 0.4681 | 0.4271 | 0.5396 | 0.0706 | 1.0000 | 187.29 | 0.3499 |
+| AgentPoirot official | 0.4539 | 0.5521 | 0.4013 | 0.1269 | 0.8750 | 60.57 | 不适用 |
 
 所有成功输出的重复率均为 0。数字覆盖率只在含可提取参考数字的 `flag-11` 上有值，不能当成两个 case 的总体成绩。确定性指标与语义指标给出的排序不同：AgentPoirot 的短 insight 更接近参考答案表面措辞，因此 token overlap 较高；PI 输出更长、分析更深入，却不一定更容易命中短参考 insight。这说明 token overlap 只能作为表达层辅助指标，不能替代语义质量。
 
@@ -53,22 +53,22 @@
 
 | 系统 | flag-11 | agent-run SD | flag-12 | agent-run SD |
 |---|---:|---:|---:|---:|
-| PI-core | 0.2037 | 0.0113 | 0.3569 | 0.3119 |
-| PI-core + skills | 0.2958 | 0.1226 | 0.2425 | 0.1370 |
-| DataSTORM reproduction | 0.2308 | 0.0743 | 0.3634 | 0.1291 |
-| AgentPoirot official | 0.2874 | 0.0495 | 0.3085 | 0.0108 |
+| PI-core | 0.6270 | 0.0973 | 0.5030 | 0.2268 |
+| PI-core + skills | 0.6739 | 0.0128 | 0.3706 | 0.1529 |
+| DataSTORM reproduction | 0.4420 | 0.3108 | 0.4942 | 0.1659 |
+| AgentPoirot official | 0.5175 | 0.0479 | 0.3903 | 0.0043 |
 
-PI-core 在 `flag-12` 的两次运行均值分别为 0.5775 和 0.1364。仅这一处就足以说明：只跑一次会把随机命中误写成“显著改进”。
+PI-core 在 `flag-12` 的两次运行均值分别为 0.6633 和 0.3426。仅这一处就足以说明：只跑一次会把随机命中误写成“显著改进”。DataSTORM 在 `flag-11` 的两次运行也分别为 0.2222 和 0.6617。
 
 ### 3.3 与 PI-core 的配对差异
 
 | Challenger | flag-11 差异 | flag-12 差异 | 两 case 平均差异 | 配对置换 p |
 |---|---:|---:|---:|---:|
-| PI-core + skills | +0.0921 | -0.1145 | -0.0112 | 1.0 |
-| DataSTORM reproduction | +0.0271 | +0.0065 | +0.0168 | 0.5 |
-| AgentPoirot official | +0.0837 | -0.0484 | +0.0176 | 1.0 |
+| PI-core + skills | +0.0469 | -0.1324 | -0.0427 | 1.0 |
+| DataSTORM reproduction | -0.1850 | -0.0088 | -0.0969 | 0.5 |
+| AgentPoirot official | -0.1095 | -0.1127 | -0.1111 | 0.5 |
 
-`n=2` 时置信区间和 p 值几乎没有推断价值。这里保留它们是为了验证统计管线，不用于声称显著性。
+差异定义为 `Challenger − PI-core`。`n=2` 时置信区间和 p 值几乎没有推断价值。这里保留它们是为了验证统计管线，不用于声称显著性。
 
 ## 4. 轨迹和失败模式分析
 
@@ -76,7 +76,7 @@ PI-core 在 `flag-12` 的两次运行均值分别为 0.5775 和 0.1364。仅这�
 
 PI 使用两层问题树：第一层做类别、时间、人员或地点切分，第二层围绕已发现异常继续验证机制。`flag-11` 的轨迹能够从 Hardware 在 2023 年 7 月后的 TTR 异常继续追问 backlog、关闭批次、人员与地点效应。这种轨迹比平铺 10 个图更接近“研究过程”，也是论文中最有价值的可解释性材料。
 
-问题在于第二层高度依赖第一层叙事。某次运行若第一层提出了错误机制，后续问题会持续验证该机制，形成路径依赖。`flag-12` 两次 F1 相差 0.44，就是这种生成随机性和路径依赖的直接表现。
+问题在于第二层高度依赖第一层叙事。某次运行若第一层提出了错误机制，后续问题会持续验证该机制，形成路径依赖。`flag-12` 两次 F1 相差约 0.32，就是这种生成随机性和路径依赖的直接表现。
 
 ### 4.2 PI-core + skills
 
@@ -109,13 +109,15 @@ PI-core 四次生成共 149 calls、606,916 input tokens、75,883 output tokens�
 
 DataSTORM 和 AgentPoirot 的上游客户端目前没有统一 token/cost 记录，因此不能做公平成本比较。这是下一轮正式大样本实验前必须补齐的观测缺口。
 
-32 次 judge run 共 1,588 calls、906,656 input tokens、11,116 output tokens。按当时 V4.1 Flash 高峰价估算约 1.23 元人民币。关闭默认思考模式后，judge 单次 completion 被稳定限制在很小范围；此前试验中默认思考曾产生 10 万级 completion tokens，因此冻结非思考评分协议是必要的。
+32 次正式 judge run 共 1,588 calls、946,356 input tokens、1,152,588 completion tokens。按 V4.1 Flash 高峰价估算上限约 10.35 元人民币。思考模式显著增加评分成本，但同预测对照证明非思考模式会把 F1 从 0.7174 压到 0.5046，并把明确匹配从 0.7 压到 0.3，因此不能用廉价非思考协议替代正式语义评分。
 
 ## 6. 参考答案与评分有效性
 
 `flag-12` 参考答案只有 4 条，覆盖的是：Hardware 数量异常、Printer 关键词、location 缺失和时间趋势。数据中 category 的 Hardware 数量是 406，而 assignment_group 的 Hardware 数量是 405；不同系统选择不同字段时，可能得到语义合理但与参考措辞不一致的结果。
 
 这说明当前分数衡量的是“对一组稀疏参考 insight 的覆盖”，不是完整的数据分析质量。参考答案还包含解释性较弱或相互含混的叙述，因此不能把本地 judge 分数当作客观真值。
+
+正式思考评分的矩阵落盘单元中约 1.5% 为 0，代表 API 异常或未输出合法 rating；没有任何 GT 行或 prediction 列出现全 0，因此没有形成空匹配，但后续评分器仍应加入单 pair 重试并报告失败计数。
 
 论文中应明确采用三角验证：
 
@@ -158,6 +160,6 @@ DataSTORM 和 AgentPoirot 的上游客户端目前没有统一 token/cost 记录
 
 ## 9. 当前可写与不可写的结论
 
-可以写：实验框架已具备复现和外部基线比较能力；层级轨迹提供了可审计的因果追问过程；随机性是当前主要不确定性来源；DataSTORM 和 AgentPoirot 暴露了不同的工程失败模式；V4.1 Flash 使统一模型条件下的大规模实验成本可控。
+可以写：实验框架已具备复现和外部基线比较能力；在本轮两个 source-valid case、固定预算下，PI-core 的 F1 均值高于 DataSTORM reproduction 与 AgentPoirot official，且对 AgentPoirot 的两个 case 差异方向一致；层级轨迹提供了可审计的因果追问过程；随机性仍是主要不确定性来源。
 
 不能写：PI 或 skills 已显著优于基线；DataSTORM/AgentPoirot 已显著优于 PI；两 case 的均值能代表整套 benchmark；本地 LLM judge 分数等同于真实分析质量。
