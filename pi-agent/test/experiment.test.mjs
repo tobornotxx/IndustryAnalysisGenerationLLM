@@ -17,7 +17,7 @@ test("run directory encodes experiment, system, case and repeat", () => {
 });
 
 test("data split names prevent accidental test claims", () => {
-  assert.equal(validateDataSplit("dev-contaminated"), "dev-contaminated");
+  assert.equal(validateDataSplit("source-train"), "source-train");
   assert.equal(validateDataSplit("target-test"), "target-test");
   assert.throws(() => validateDataSplit("test"), /unsupported data split/);
 });

@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 
 export const MANIFEST_SCHEMA_VERSION = 1;
 export const DATA_SPLITS = Object.freeze([
-  "dev-contaminated", "source-train", "source-valid", "source-test", "target-test",
+  "source-train", "source-valid", "source-test", "target-test",
 ]);
 
 export function validateDataSplit(split) {

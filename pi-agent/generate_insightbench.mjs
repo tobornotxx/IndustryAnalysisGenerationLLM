@@ -7,6 +7,7 @@ import {
   buildRunDirectory, createRunDirectory, gitState, loadBenchmarkCase, makeManifest,
   sha256Files, validateDataSplit, writeJsonAtomic,
 } from "./src/experiment.mjs";
+import { assertCaseSplit, splitRegistrySha256 } from "./src/split-registry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.REPO_ROOT ?? resolve(HERE, "..");
@@ -34,7 +35,7 @@ const summarySamples = Number(arg("summary-samples", 3));
 const agentRun = Number(arg("agent-run", 1));
 const experimentId = arg("experiment", "v41_baseline");
 const split = validateDataSplit(arg(
-  "split", benchmarkKind === "insighteval" ? "target-test" : "dev-contaminated",
+  "split", benchmarkKind === "insighteval" ? "target-test" : "source-train",
 ));
 const useSkills = arg("use-skills", process.env.USE_SKILLS ?? "1") !== "0";
 const useInsightBank = arg("use-insight-bank", "1") !== "0";
@@ -54,6 +55,7 @@ if (benchmarkKind === "insighteval" && split !== "target-test") {
 }
 const benchmarkCase = loadBenchmarkCase({ benchmarkKind, benchmarkDir: BENCH, caseNumber });
 const { benchmarkId, caseId, goal, csvPath, userCsvPath } = benchmarkCase;
+assertCaseSplit(benchmarkId, caseId, split);
 if (!existsSync(csvPath)) throw new Error(`dataset not found: ${csvPath}`);
 
 const runDir = buildRunDirectory({ outRoot, experimentId, systemId, caseId, agentRun });
@@ -75,6 +77,7 @@ const baseManifest = makeManifest({
   agent_run: agentRun, status: "planned", generation_model: model,
   scorer_model: null, repository: repoGit, benchmark: benchmarkGit,
   prompt_hash: sha256Files(promptFiles), skill_hash: skillPath ? sha256Files([skillPath]) : null,
+  split_registry_hash: splitRegistrySha256(),
   config,
 });
 

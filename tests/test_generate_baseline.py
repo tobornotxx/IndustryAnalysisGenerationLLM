@@ -32,7 +32,7 @@ class BaselineGenerationTests(unittest.TestCase):
         self.assertEqual(result["pred_insights"], ["ok"])
         self.assertEqual(calls[0]["goal"], "test goal")
 
-    def test_split_defaults_to_contaminated_development_data(self):
+    def test_split_defaults_are_resolved_by_frozen_registry_at_runtime(self):
         args = build_parser().parse_args([
             "--system", "agentpoirot-upstream-local", "--benchmark-dir", ".", "--case", "11",
         ])

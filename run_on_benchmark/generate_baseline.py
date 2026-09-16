@@ -14,10 +14,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .experiment_io import read_json, write_json_atomic, write_json_exclusive
+from .split_registry import assert_case_split, split_registry_sha256
 
 SUPPORTED_SYSTEMS = ("legacy-custom-python", "agentpoirot-upstream-local")
 SUPPORTED_BENCHMARKS = ("insightbench", "insighteval")
-DATA_SPLITS = ("dev-contaminated", "source-train", "source-valid", "source-test", "target-test")
+DATA_SPLITS = ("source-train", "source-valid", "source-test", "target-test")
 
 
 def git_state(path: Path) -> dict:
@@ -139,10 +140,14 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("InsightEval is reserved for target-test and must not be used for tuning")
     else:
         case_id = args.case if args.case.startswith("flag-") else f"flag-{args.case}"
-        split = args.split or "dev-contaminated"
+        split = args.split or "source-train"
     try:
         case = load_benchmark_case(args.benchmark_kind, args.benchmark_dir, case_id)
     except (FileNotFoundError, ValueError) as error:
+        raise SystemExit(str(error)) from error
+    try:
+        assert_case_split(case["benchmark_id"], case_id, split)
+    except ValueError as error:
         raise SystemExit(str(error)) from error
     run_dir = run_directory(args.out_root, args.experiment, args.system, case_id, args.agent_run)
     repository_root = Path(__file__).resolve().parents[1]
@@ -161,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         "benchmark": git_state(args.benchmark_dir),
         "repository": git_state(repository_root), "system_source": git_state(system_root),
         "prompt_hash": sha256_files(prompt_files),
+        "split_registry_hash": split_registry_sha256(),
         "config": {"max_layers": args.max_layers, "questions_per_layer": args.questions, "max_questions": args.max_questions, "max_insights": args.max_insights},
     }
     if args.dry_run:
