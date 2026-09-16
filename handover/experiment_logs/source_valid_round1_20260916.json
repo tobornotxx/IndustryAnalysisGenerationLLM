@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "experiment_id": "v41_source_valid_round1_20260916",
+  "split": "source-valid",
+  "cases": ["flag-11", "flag-12"],
+  "generation_model": "deepseek-flash",
+  "scorer_id": "local-deepseek-v41-nonthinking-v1",
+  "design": {
+    "successful_agent_runs_per_system_case": 2,
+    "judge_runs_per_output": 2,
+    "max_questions": 6,
+    "max_insights": 10
+  },
+  "systems": {
+    "pi-core": {
+      "semantic_f1": 0.28029600239902785,
+      "case_f1": {"flag-11": 0.20367224080267557, "flag-12": 0.3569197639953801},
+      "successful_runs": 4,
+      "other_runs": 0,
+      "mean_elapsed_sec": 56.94,
+      "generation_usage": {"calls": 149, "prompt_tokens": 606916, "completion_tokens": 75883, "cost_usd": 0.069432}
+    },
+    "pi-core-skills": {
+      "semantic_f1": 0.2691260236886792,
+      "case_f1": {"flag-11": 0.29579366114516764, "flag-12": 0.24245838623219074},
+      "successful_runs": 4,
+      "other_runs": 0,
+      "mean_elapsed_sec": 58.92,
+      "generation_usage": {"calls": 151, "prompt_tokens": 588026, "completion_tokens": 72271, "cost_usd": 0.065427}
+    },
+    "datastorm-reproduction": {
+      "semantic_f1": 0.2971000845142048,
+      "case_f1": {"flag-11": 0.23077200577200577, "flag-12": 0.3634281632564038},
+      "successful_runs": 4,
+      "other_runs": 1,
+      "other_status": "aborted-budget-violation",
+      "mean_elapsed_sec": 462.79,
+      "generation_usage": null
+    },
+    "agentpoirot-official": {
+      "semantic_f1": 0.29793550550825876,
+      "case_f1": {"flag-11": 0.28737508110910437, "flag-12": 0.30849592990741315},
+      "successful_runs": 4,
+      "other_runs": 1,
+      "other_status": "failed-missing-plot",
+      "mean_elapsed_sec": 476.91,
+      "generation_usage": null,
+      "summary_metric": null
+    }
+  },
+  "variance": {
+    "mean_within_output_judge_std": 0.0127838175762909,
+    "mean_within_case_agent_std": 0.105834534094129
+  },
+  "judge_usage": {
+    "judge_runs": 32,
+    "calls": 1588,
+    "prompt_tokens": 906656,
+    "completion_tokens": 11116,
+    "cache_hit_tokens": 343399
+  },
+  "interpretation": "Feasibility round only; n=2 source-valid cases is insufficient for performance or significance claims."
+}
