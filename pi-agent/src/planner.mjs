@@ -212,6 +212,9 @@ export class Planner {
     let questions = parseQuestions(resp?.questions ?? [], []);
     // 安全截断：保证不超过 maxQ（即使 LLM 返回更多）
     if (questions.length > maxQ) questions = questions.slice(0, maxQ);
+    if (questions.length !== maxQ || questions.some((item) => !item.question.trim())) {
+      throw new Error(`planner returned ${questions.length}/${maxQ} valid initial questions`);
+    }
     return questions;
   }
 
@@ -248,6 +251,9 @@ export class Planner {
 
     if (followUps.length > MAX_PER_TYPE) followUps = followUps.slice(0, MAX_PER_TYPE);
     if (exploratory.length > MAX_PER_TYPE) exploratory = exploratory.slice(0, MAX_PER_TYPE);
+    if (!followUps.length && !exploratory.length) {
+      throw new Error("planner returned no valid follow-up or exploratory questions");
+    }
 
     return { followUps, exploratory };
   }

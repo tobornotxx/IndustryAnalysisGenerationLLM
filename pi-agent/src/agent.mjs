@@ -130,12 +130,20 @@ export function makeGenerateJson({ models, model, usage, reasoning = DEFAULT_REA
     for await (const ev of stream) {
       if (ev.type === "done" || ev.type === "error") final = ev.message;
     }
+    if (!final || final.stopReason === "error") {
+      throw new Error(`model JSON call failed: ${final?.errorMessage ?? "no terminal response"}`);
+    }
     usage?.record(final?.usage);
     const text = (final?.content ?? [])
       .filter((c) => c.type === "text")
       .map((c) => c.text)
       .join("");
-    return parseJsonLoose(text);
+    if (!text.trim()) throw new Error("model JSON call returned no text");
+    const parsed = parseJsonLoose(text);
+    if (!parsed || typeof parsed !== "object" || !Object.keys(parsed).length) {
+      throw new Error("model JSON call returned invalid or empty JSON");
+    }
+    return parsed;
   };
 }
 
@@ -151,11 +159,16 @@ export function makeGenerateText({ models, model, usage, reasoning = DEFAULT_REA
     for await (const ev of stream) {
       if (ev.type === "done" || ev.type === "error") final = ev.message;
     }
+    if (!final || final.stopReason === "error") {
+      throw new Error(`model text call failed: ${final?.errorMessage ?? "no terminal response"}`);
+    }
     usage?.record(final?.usage);
-    return (final?.content ?? [])
+    const text = (final?.content ?? [])
       .filter((c) => c.type === "text")
       .map((c) => c.text)
       .join("");
+    if (!text.trim()) throw new Error("model text call returned no text");
+    return text;
   };
 }
 

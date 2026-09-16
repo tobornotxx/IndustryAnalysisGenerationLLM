@@ -7,7 +7,7 @@ import {
   isDeepSeekPeak,
   makeDeepSeekV41FlashModel,
 } from "../src/model-config.mjs";
-import { createDeepSeek } from "../src/agent.mjs";
+import { createDeepSeek, makeGenerateJson, makeGenerateText } from "../src/agent.mjs";
 
 test("retired DeepSeek aliases resolve to the canonical V4.1 Flash ID", () => {
   assert.equal(canonicalizeDeepSeekModel("deepseek-v4-pro"), "deepseek-flash");
@@ -40,4 +40,25 @@ test("DeepSeek calls default to explicit thinking mode", () => {
   assert.equal(DEFAULT_REASONING_EFFORT, "medium");
   assert.equal(handle.reasoning, "medium");
   assert.equal(handle.model.reasoning, true);
+});
+
+function fakeModels(events) {
+  return {
+    streamSimple() {
+      return (async function* stream() { for (const event of events) yield event; })();
+    },
+  };
+}
+
+test("generation helpers fail closed on provider errors and empty responses", async () => {
+  const failed = { stopReason: "error", errorMessage: "Connection error", content: [] };
+  await assert.rejects(
+    makeGenerateJson({ models: fakeModels([{ type: "error", message: failed }]), model: {} })("x"),
+    /Connection error/,
+  );
+  const empty = { stopReason: "stop", content: [] };
+  await assert.rejects(
+    makeGenerateText({ models: fakeModels([{ type: "done", message: empty }]), model: {} })("x"),
+    /no text/,
+  );
 });
