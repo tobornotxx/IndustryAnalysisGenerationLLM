@@ -57,7 +57,7 @@ test("ablation switches are represented by distinct run paths at the system leve
     caseId: "flag-20", agentRun: 1,
   });
   const withSkills = buildRunDirectory({
-    outRoot: "results", experimentId: "ablation", systemId: "pi-core-skills",
+    outRoot: "results", experimentId: "ablation", systemId: "pi-manual-skills",
     caseId: "flag-20", agentRun: 1,
   });
   assert.notEqual(withoutSkills, withSkills);

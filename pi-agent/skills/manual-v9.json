@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "version": "manual-v9-candidates",
+    "produced_by": "manual-transcription-from-v8",
+    "status": "candidates-pending-validation",
+    "frozen": false,
+    "claim_boundary": "Manual guidance ablation only; not an extraction-agent output."
+  },
+  "skills": [
+    {
+      "id": "decompose-trend-by-category",
+      "trigger": "question concerns trend, growth, or change over time",
+      "trigger_terms": ["trend", "growth", "change", "time", "increase", "decrease"],
+      "stages": ["executor"],
+      "action": "Do not test only the overall total. Decompose the trend by the primary categorical columns of this dataset ({categorical_columns}) and report both overall and per-group trends.",
+      "rationale": "An aggregate trend can mask or invert subgroup behaviour.",
+      "status": "candidate"
+    },
+    {
+      "id": "decompose-imbalance-by-group",
+      "trigger": "question concerns imbalance, distribution, or concentration",
+      "trigger_terms": ["imbalance", "distribution", "concentration", "category", "group"],
+      "stages": ["executor"],
+      "action": "Check whether the pattern holds uniformly across time and the categorical groups of this dataset ({categorical_columns}); report overall results and notable per-group deviations.",
+      "rationale": "Aggregate distributions hide where an imbalance is concentrated.",
+      "status": "candidate"
+    },
+    {
+      "id": "pick-adequate-time-bucket",
+      "trigger": "aggregating or testing a trend over a time column",
+      "trigger_terms": ["time", "trend", "daily", "weekly", "monthly", "yearly"],
+      "stages": ["executor"],
+      "action": "Choose a time granularity that leaves enough observations per bucket. Use the schema time range and bucket counts; avoid a granularity where most buckets are nearly empty.",
+      "rationale": "Trend tests on sparse buckets produce noise rather than signal.",
+      "status": "candidate"
+    },
+    {
+      "id": "coverage-multidim-selfcheck",
+      "trigger": "self-evaluating whether findings answer the research goal",
+      "trigger_terms": [],
+      "always": true,
+      "stages": ["sufficiency"],
+      "action": "Check every goal-relevant quantity, trend, or comparison across time and the available categorical dimensions ({categorical_columns}), not only as one overall number. Treat unexamined entity-by-dimension slices as missing aspects.",
+      "rationale": "Coverage failures are often unexamined entity-by-dimension slices.",
+      "status": "candidate"
+    },
+    {
+      "id": "anti-premature-stop",
+      "trigger": "about to declare the research goal sufficiently answered",
+      "trigger_terms": [],
+      "always": true,
+      "stages": ["sufficiency"],
+      "action": "Before setting sufficient=true, try to name at least two goal-relevant analytical slices that remain unexamined. If any exists, continue and record it in missing_aspects.",
+      "rationale": "The common self-evaluation failure is stopping too early.",
+      "status": "candidate"
+    }
+  ],
+  "episodes": [],
+  "config": {
+    "max_layers": 3,
+    "questions_per_layer": 2,
+    "summary_samples": 3
+  }
+}

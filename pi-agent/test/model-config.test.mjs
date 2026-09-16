@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   canonicalizeDeepSeekModel,
+  DEFAULT_REASONING_EFFORT,
   deepSeekV41FlashCost,
   isDeepSeekPeak,
   makeDeepSeekV41FlashModel,
 } from "../src/model-config.mjs";
+import { createDeepSeek } from "../src/agent.mjs";
 
 test("retired DeepSeek aliases resolve to the canonical V4.1 Flash ID", () => {
   assert.equal(canonicalizeDeepSeekModel("deepseek-v4-pro"), "deepseek-flash");
@@ -31,4 +33,11 @@ test("current model metadata uses the canonical ID without mutating catalog data
   assert.deepEqual(current.input, ["text", "image"]);
   assert.equal(current.cost.output, 0.6);
   assert.equal(legacy.id, "deepseek-v4-flash");
+});
+
+test("DeepSeek calls default to explicit thinking mode", () => {
+  const handle = createDeepSeek();
+  assert.equal(DEFAULT_REASONING_EFFORT, "medium");
+  assert.equal(handle.reasoning, "medium");
+  assert.equal(handle.model.reasoning, true);
 });

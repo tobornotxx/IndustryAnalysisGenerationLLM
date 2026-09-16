@@ -17,6 +17,7 @@ import { Type } from "@sinclair/typebox";
 import { PyWorkerPool } from "./py-worker.mjs";
 import { Planner } from "./planner.mjs";
 import {
+  DEFAULT_REASONING_EFFORT,
   DEEPSEEK_CANONICAL_MODEL,
   canonicalizeDeepSeekModel,
   makeDeepSeekV41FlashModel,
@@ -92,7 +93,11 @@ export class UsageTracker {
 }
 
 /** 建 DeepSeek 模型句柄 + 与 pi 的 streamFn 桥接。 */
-export function createDeepSeek({ model = DEEPSEEK_CANONICAL_MODEL, now = new Date() } = {}) {
+export function createDeepSeek({
+  model = DEEPSEEK_CANONICAL_MODEL,
+  reasoning = DEFAULT_REASONING_EFFORT,
+  now = new Date(),
+} = {}) {
   const models = createModels();
   models.setProvider(deepseekProvider());
   const canonical = canonicalizeDeepSeekModel(model);
@@ -105,7 +110,10 @@ export function createDeepSeek({ model = DEEPSEEK_CANONICAL_MODEL, now = new Dat
   return {
     models,
     model: handle,
-    streamFn: (m, ctx, opts) => models.streamSimple(m, ctx, opts),
+    reasoning,
+    streamFn: (m, ctx, opts) => models.streamSimple(
+      m, ctx, { ...opts, reasoning: opts?.reasoning ?? reasoning },
+    ),
   };
 }
 
@@ -113,11 +121,11 @@ export function createDeepSeek({ model = DEEPSEEK_CANONICAL_MODEL, now = new Dat
  * 直接向模型要一段 JSON（非 agentic 步骤：planner / thesis / 自评等）。
  * 不走 agent loop，因为这些步骤没有工具调用。
  */
-export function makeGenerateJson({ models, model, usage }) {
+export function makeGenerateJson({ models, model, usage, reasoning = DEFAULT_REASONING_EFFORT }) {
   return async function generateJson(prompt, { temperature = 0.7 } = {}) {
     const stream = models.streamSimple(model, {
       messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
-    });
+    }, { temperature, reasoning });
     let final = null;
     for await (const ev of stream) {
       if (ev.type === "done" || ev.type === "error") final = ev.message;
@@ -132,12 +140,12 @@ export function makeGenerateJson({ models, model, usage }) {
 }
 
 /** 直接向模型要一段纯文本（summary 等），不走 agent loop。 */
-export function makeGenerateText({ models, model, usage }) {
+export function makeGenerateText({ models, model, usage, reasoning = DEFAULT_REASONING_EFFORT }) {
   return async function generateText(prompt, { temperature = 0.3 } = {}) {
     const stream = models.streamSimple(
       model,
       { messages: [{ role: "user", content: [{ type: "text", text: prompt }] }] },
-      { temperature },
+      { temperature, reasoning },
     );
     let final = null;
     for await (const ev of stream) {
@@ -310,6 +318,7 @@ export async function explore({
   maxQuestions = null,
   poolSize = 4,
   model = DEEPSEEK_CANONICAL_MODEL,
+  reasoning = DEFAULT_REASONING_EFFORT,
   pythonBin,
   workerScript,
   loadMode = "isolated",
@@ -321,13 +330,17 @@ export async function explore({
   thesisInterval = 1,
   maxInsights = 12,
   summarySamples = 3,
+  skillPackagePath = undefined,
+  requireFrozenSkills = false,
   onLog = () => {},
 }) {
   const usage = new UsageTracker();
-  const deepseek = createDeepSeek({ model });
+  const deepseek = createDeepSeek({ model, reasoning });
   const generateJson = makeGenerateJson({ ...deepseek, usage });
   const generateText = makeGenerateText({ ...deepseek, usage });
-  const skillPkg = useSkills ? SkillPackage.load() : new SkillPackage(null);
+  const skillPkg = useSkills
+    ? SkillPackage.load(skillPackagePath, { requireFrozen: requireFrozenSkills })
+    : new SkillPackage(null);
 
   const pool = new PyWorkerPool({ python: pythonBin, workerScript, size: poolSize });
   await pool.ready();
@@ -341,10 +354,12 @@ export async function explore({
 
     // skill 引导：列名在运行时从真实 schema 填充，不硬编码任何字段名
     const catCols = describeCategoricalColumns(loaded.grouping_columns);
-    const executorGuidance = skillPkg.renderGuidance(EXECUTOR_SKILL_IDS, {
+    const executorSkills = skillPkg.select("executor", goal, { fallbackIds: EXECUTOR_SKILL_IDS });
+    const sufficiencySkills = skillPkg.select("sufficiency", goal, { fallbackIds: SUFFICIENCY_SKILL_IDS });
+    const executorGuidance = skillPkg.renderSkills(executorSkills, {
       categoricalColumns: catCols,
     });
-    const sufficiencyGuidance = skillPkg.renderGuidance(SUFFICIENCY_SKILL_IDS, {
+    const sufficiencyGuidance = skillPkg.renderSkills(sufficiencySkills, {
       header: "COVERAGE AUDIT RULES",
       categoricalColumns: catCols,
     });
@@ -358,7 +373,9 @@ export async function explore({
     if (useSkills) {
       onLog(
         `skills: ${skillPkg.meta.version ?? "?"} ` +
-          `(${skillPkg.skills.length} available, status=${skillPkg.meta.status ?? "?"})`,
+          `(${skillPkg.skills.length} available, selected=` +
+          `${[...executorSkills, ...sufficiencySkills].map((skill) => skill.id).join(",")}, ` +
+          `status=${skillPkg.meta.status ?? "?"})`,
       );
     }
 
@@ -550,7 +567,13 @@ export async function explore({
       layersRun,
       stoppedEarly,
       skillPackage: useSkills
-        ? { version: skillPkg.meta.version, status: skillPkg.meta.status, count: skillPkg.skills.length }
+        ? {
+            version: skillPkg.meta.version,
+            status: skillPkg.meta.status,
+            count: skillPkg.skills.length,
+            hash: skillPkg.hash,
+            selected_ids: [...new Set([...executorSkills, ...sufficiencySkills].map((skill) => skill.id))],
+          }
         : null,
       usage: usage.toJSON(),
     };

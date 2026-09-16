@@ -1,4 +1,5 @@
 export const DEEPSEEK_CANONICAL_MODEL = "deepseek-flash";
+export const DEFAULT_REASONING_EFFORT = "medium";
 
 const RETIRED_ALIASES = new Set([
   "deepseek-v4-flash",

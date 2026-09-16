@@ -13,10 +13,11 @@ function arg(name, dflt) {
 }
 const dryRun = process.argv.includes("--dry-run");
 const flags = arg("flags", "11,12").split(",").map(Number);
-const systems = arg("systems", "pi-core,pi-core-skills").split(",").filter(Boolean);
+const systems = arg("systems", "pi-core,pi-manual-skills").split(",").filter(Boolean);
 const repeats = Number(arg("agent-runs", 3));
 const experimentId = arg("experiment", "v41_baseline");
-const split = validateDataSplit(arg("split", "dev-contaminated"));
+const split = validateDataSplit(arg("split", "source-train"));
+const skillPackage = arg("skill-package", process.env.SKILL_PACKAGE_PATH ?? "");
 const outRoot = arg("out-root", `${REPO}/results/experiments`);
 const layers = arg("layers", "3");
 const questions = arg("questions", "2");
@@ -24,8 +25,13 @@ const maxQuestions = arg("max-questions", "");
 const poolSize = arg("pool", "4");
 const maxInsights = arg("max-insights", "10");
 const summarySamples = arg("summary-samples", "3");
+const reasoning = arg("reasoning", "medium");
 const useInsightBank = arg("use-insight-bank", "1");
 const goalSufficiency = arg("goal-sufficiency", "1");
+
+if (systems.includes("pi-auto-skills") && !skillPackage) {
+  throw new Error("pi-auto-skills matrix requires --skill-package");
+}
 
 if (!Number.isInteger(repeats) || repeats < 1 || flags.some((flag) => !Number.isInteger(flag))) {
   throw new Error("flags and agent-runs must be positive integers");
@@ -33,7 +39,7 @@ if (!Number.isInteger(repeats) || repeats < 1 || flags.some((flag) => !Number.is
 
 const tasks = [];
 for (const systemId of systems) {
-  if (!["pi-core", "pi-core-skills"].includes(systemId)) {
+  if (!["pi-core", "pi-manual-skills", "pi-auto-skills"].includes(systemId)) {
     throw new Error(`unsupported generation system: ${systemId}`);
   }
   for (const flag of flags) {
@@ -55,7 +61,7 @@ for (const systemId of systems) {
 if (dryRun) {
   console.log(JSON.stringify({
     experiment_id: experimentId, split,
-    config: { layers, questions, max_questions: maxQuestions || null, pool: poolSize, max_insights: maxInsights, summary_samples: summarySamples },
+    config: { layers, questions, max_questions: maxQuestions || null, pool: poolSize, max_insights: maxInsights, summary_samples: summarySamples, reasoning, thinking_mode: true },
     tasks,
   }, null, 2));
   process.exit(0);
@@ -73,10 +79,14 @@ for (const task of tasks) {
     "--system", task.systemId, "--agent-run", String(task.agentRun), "--layers", layers,
     "--split", split,
     "--questions", questions, "--pool", poolSize,
+    "--reasoning", reasoning,
     "--max-insights", maxInsights, "--summary-samples", summarySamples,
-    "--out-root", outRoot, "--use-skills", task.systemId === "pi-core-skills" ? "1" : "0",
+    "--out-root", outRoot, "--use-skills", task.systemId === "pi-core" ? "0" : "1",
     "--use-insight-bank", useInsightBank, "--goal-sufficiency", goalSufficiency,
   ];
+  if (task.systemId === "pi-auto-skills") {
+    args.push("--skill-package", skillPackage);
+  }
   if (maxQuestions) args.push("--max-questions", maxQuestions);
   const result = spawnSync(process.execPath, args, { cwd: HERE, stdio: "inherit", env: process.env });
   if (result.status === 0) counts.success += 1;
