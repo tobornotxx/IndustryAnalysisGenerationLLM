@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-09-16",
+  "systems": {
+    "datastorm-official-published": {
+      "role": "external-published-baseline",
+      "generation_mode": "published-artifact",
+      "repository": "https://github.com/stanford-oval/DataSTORM",
+      "commit": "29ba2031290e40a388ce548582d4e43bbac05d72",
+      "benchmark": "insightbench-overhaul",
+      "generation_model": "gpt-5-2025-08-07",
+      "reported_model_label": "gpt-5",
+      "protocol": {
+        "max_layers": 5,
+        "first_layer_questions": 2,
+        "subsequent_layer_questions": 5
+      },
+      "claim_boundary": "Author-published GPT-5 predictions; not a matched-model local run."
+    },
+    "agentpoirot-official-published": {
+      "role": "external-published-baseline",
+      "generation_mode": "published-artifact",
+      "repository": "https://github.com/stanford-oval/DataSTORM",
+      "commit": "29ba2031290e40a388ce548582d4e43bbac05d72",
+      "benchmark": "insightbench-overhaul",
+      "generation_model": "gpt-5",
+      "protocol": { "parallel_runs": 3 },
+      "claim_boundary": "AgentPoirot predictions republished by DataSTORM authors; not a local DeepSeek run."
+    },
+    "legacy-custom-python": {
+      "role": "internal-predecessor",
+      "generation_mode": "local-generation",
+      "repository": "git@github.com:tobornotxx/MyDataStorm.git",
+      "claim_boundary": "Late customized Python predecessor of PI Agent; not the paper or official DataSTORM implementation."
+    },
+    "agentpoirot-upstream-local": {
+      "role": "external-code-local-run",
+      "generation_mode": "local-generation",
+      "claim_boundary": "Locally generated from upstream AgentPoirot code under the configured local model and budget."
+    },
+    "pi-core": {
+      "role": "primary-control",
+      "generation_mode": "local-generation",
+      "skills": "disabled"
+    },
+    "pi-manual-skills": {
+      "role": "manual-guidance-ablation",
+      "generation_mode": "local-generation",
+      "skills": "manual-candidates"
+    },
+    "pi-auto-skills": {
+      "role": "proposed-method",
+      "generation_mode": "local-generation",
+      "skills": "automatically-mined-frozen-package"
+    }
+  },
+  "retired_aliases": {
+    "datastorm-reproduction": "legacy-custom-python",
+    "agentpoirot-official": "agentpoirot-upstream-local",
+    "pi-core-skills": "pi-manual-skills"
+  }
+}

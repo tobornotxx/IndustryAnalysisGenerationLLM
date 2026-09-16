@@ -1,4 +1,4 @@
-"""Run repeated immutable DataSTORM and AgentPoirot generations."""
+"""Run repeated immutable local Python predecessor and AgentPoirot generations."""
 
 from __future__ import annotations
 

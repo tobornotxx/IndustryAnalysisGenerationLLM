@@ -1,4 +1,4 @@
-"""Generate an InsightBench prediction with the pinned official AgentPoirot."""
+"""Generate a local prediction with pinned upstream AgentPoirot code."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"Refusing to overwrite existing output directory: {args.out}")
     if args.dry_run:
         print(json.dumps({
-            "system_id": "agentpoirot-official", "system_commit": upstream_commit(),
+            "system_id": "agentpoirot-upstream-local", "system_commit": upstream_commit(),
             "model": args.model, "csv": str(args.csv.resolve()), "goal": args.goal,
             "n_insights": args.n_insights,
         }, ensure_ascii=False, indent=2))

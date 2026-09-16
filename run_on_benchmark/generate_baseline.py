@@ -1,4 +1,4 @@
-"""Generate immutable predictions for official/reproduction Python baselines."""
+"""Generate immutable predictions for locally executed Python baselines."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 from .experiment_io import read_json, write_json_atomic, write_json_exclusive
 
-SUPPORTED_SYSTEMS = ("datastorm-reproduction", "agentpoirot-official")
+SUPPORTED_SYSTEMS = ("legacy-custom-python", "agentpoirot-upstream-local")
 SUPPORTED_BENCHMARKS = ("insightbench", "insighteval")
 DATA_SPLITS = ("dev-contaminated", "source-train", "source-valid", "source-test", "target-test")
 
@@ -81,7 +81,7 @@ def generate(
     user_csv = Path(case["user_csv_path"]) if case.get("user_csv_path") else None
     if runner:
         return runner(system=system, csv_path=csv_path, user_csv=user_csv, goal=goal, run_dir=run_dir)
-    if system == "agentpoirot-official":
+    if system == "agentpoirot-upstream-local":
         from .agentpoirot_adapter import run_agentpoirot
         output = run_agentpoirot(
             csv_path=csv_path, goal=goal, output_dir=run_dir / "system_artifacts",
@@ -89,7 +89,7 @@ def generate(
         )
         output["case_id"] = case_id
         return output
-    if system == "datastorm-reproduction":
+    if system == "legacy-custom-python":
         from .datastorm_adapter.adapter import DataStormAdapter
         artifacts = run_dir / "system_artifacts"
         artifacts.mkdir()
@@ -146,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(str(error)) from error
     run_dir = run_directory(args.out_root, args.experiment, args.system, case_id, args.agent_run)
     repository_root = Path(__file__).resolve().parents[1]
-    if args.system == "agentpoirot-official":
+    if args.system == "agentpoirot-upstream-local":
         system_root = Path(__file__).with_name("agent-poirot")
         prompt_files = list((system_root / "agentpoirot" / "prompts").glob("*.txt"))
     else:

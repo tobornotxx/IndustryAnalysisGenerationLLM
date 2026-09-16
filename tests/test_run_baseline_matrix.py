@@ -10,7 +10,7 @@ class BaselineMatrixTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tasks = plan_tasks(
                 out_root=Path(tmp), experiment="round1",
-                systems=["datastorm-reproduction", "agentpoirot-official"],
+                systems=["legacy-custom-python", "agentpoirot-upstream-local"],
                 cases=["flag-11", "flag-12"], agent_runs=2,
             )
         self.assertEqual(len(tasks), 8)

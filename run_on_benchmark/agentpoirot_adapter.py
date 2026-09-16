@@ -117,7 +117,7 @@ def run_agentpoirot(
     items = agent.generate_insights(n_insights=n_insights, as_str=False)
     return {
         "schema_version": 1,
-        "system_id": "agentpoirot-official",
+        "system_id": "agentpoirot-upstream-local",
         "system_source": "https://github.com/ServiceNow/agent-poirot",
         "system_commit": upstream_commit(),
         "generation_model": model,

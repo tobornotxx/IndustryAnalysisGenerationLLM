@@ -8,8 +8,8 @@ from run_on_benchmark.generate_baseline import build_parser, generate, load_benc
 
 class BaselineGenerationTests(unittest.TestCase):
     def test_common_run_path(self):
-        path = run_directory(Path("results"), "exp", "agentpoirot-official", "flag-11", 2)
-        self.assertEqual(path.as_posix(), "results/exp/agentpoirot-official/flag-11/agent_run_2")
+        path = run_directory(Path("results"), "exp", "agentpoirot-upstream-local", "flag-11", 2)
+        self.assertEqual(path.as_posix(), "results/exp/agentpoirot-upstream-local/flag-11/agent_run_2")
 
     def test_runner_receives_resolved_common_inputs_without_api(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -25,7 +25,7 @@ class BaselineGenerationTests(unittest.TestCase):
                 calls.append(kwargs)
                 return {"pred_insights": ["ok"], "pred_summary": ""}
             result = generate(
-                system="agentpoirot-official", benchmark_dir=root, case_id="flag-11",
+                system="agentpoirot-upstream-local", benchmark_dir=root, case_id="flag-11",
                 run_dir=root / "run", model="deepseek-flash", max_layers=3,
                 questions=2, runner=fake_runner,
             )
@@ -34,14 +34,14 @@ class BaselineGenerationTests(unittest.TestCase):
 
     def test_split_defaults_to_contaminated_development_data(self):
         args = build_parser().parse_args([
-            "--system", "agentpoirot-official", "--benchmark-dir", ".", "--case", "11",
+            "--system", "agentpoirot-upstream-local", "--benchmark-dir", ".", "--case", "11",
         ])
         self.assertIsNone(args.split)
 
     def test_uncontrolled_split_name_is_rejected(self):
         with self.assertRaises(SystemExit):
             build_parser().parse_args([
-                "--system", "agentpoirot-official", "--benchmark-dir", ".", "--case", "11",
+                "--system", "agentpoirot-upstream-local", "--benchmark-dir", ".", "--case", "11",
                 "--split", "test",
             ])
 
@@ -55,7 +55,7 @@ class BaselineGenerationTests(unittest.TestCase):
         official = Path(__file__).parents[1] / "run_on_benchmark" / "InsightEval-official"
         with self.assertRaises(SystemExit):
             main([
-                "--system", "agentpoirot-official", "--benchmark-kind", "insighteval",
+                "--system", "agentpoirot-upstream-local", "--benchmark-kind", "insighteval",
                 "--benchmark-dir", str(official), "--case", "1", "--split", "source-train",
                 "--dry-run",
             ])
