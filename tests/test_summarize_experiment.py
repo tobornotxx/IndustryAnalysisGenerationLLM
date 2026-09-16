@@ -29,6 +29,10 @@ class SummaryTests(unittest.TestCase):
                             write_json(run / "scores" / "judge" / f"judge_run_{judge_run}.json", {
                                 "semantic": {"primary": {"f1": 0.5 + 0.05 * case_index + shift + noise}}
                             })
+                        write_json(run / "usage.json", {
+                            "cost_usd": 0.2 if system == "base" else 0.3,
+                            "prompt_tokens": 1000, "completion_tokens": 200,
+                        })
             result = summarize_experiment(
                 root, scorer_id="judge", baseline="base", challenger="new"
             )
@@ -36,6 +40,10 @@ class SummaryTests(unittest.TestCase):
         self.assertAlmostEqual(result["paired_comparison"]["mean_difference"], 0.1)
         self.assertEqual(result["systems"]["base"]["n_cases"], 2)
         self.assertGreater(result["variance"]["mean_within_output_judge_std"], 0)
+        self.assertAlmostEqual(result["paired_comparison"]["mean_cost_ratio"], 1.5)
+        self.assertAlmostEqual(result["systems"]["base"]["mean_cost_usd_per_case"], 0.2)
+        self.assertEqual(result["systems"]["base"]["mean_tokens_per_case"], 1200)
+        self.assertIsNotNone(result["systems"]["base"]["quality_per_usd"])
 
     def test_failed_runs_remain_in_status_counts(self):
         with tempfile.TemporaryDirectory() as tmp:

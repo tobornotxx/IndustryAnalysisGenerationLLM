@@ -76,6 +76,7 @@ def summarize_experiment(
 ) -> dict:
     runs = []
     grouped: dict[tuple[str, str], list[float]] = defaultdict(list)
+    resources: dict[tuple[str, str], list[dict[str, float]]] = defaultdict(list)
     status_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     for manifest_path in sorted(experiment_dir.rglob("manifest.json")):
@@ -91,30 +92,61 @@ def summarize_experiment(
             if isinstance(value, (int, float)) and math.isfinite(value):
                 judge_values.append(float(value))
         agent_value = mean(judge_values)
+        usage_path = manifest_path.parent / "usage.json"
+        usage = read_json(usage_path) if usage_path.is_file() else {}
+        cost_usd = usage.get("cost_usd")
+        total_tokens = sum(
+            float(usage.get(key) or 0)
+            for key in ("prompt_tokens", "completion_tokens")
+        ) if usage else None
         if status == "success" and agent_value is not None:
             grouped[(system, case)].append(agent_value)
+            if isinstance(cost_usd, (int, float)) and math.isfinite(cost_usd):
+                resources[(system, case)].append({
+                    "cost_usd": float(cost_usd), "total_tokens": float(total_tokens or 0),
+                })
         runs.append({
             "system_id": system, "case_id": case, "status": status,
             "agent_run": manifest.get("agent_run"), "n_judge_runs": len(judge_values),
             "agent_mean": agent_value, "judge_std": sample_std(judge_values),
+            "cost_usd": float(cost_usd) if isinstance(cost_usd, (int, float)) else None,
+            "total_tokens": total_tokens,
         })
 
     case_rows = []
     systems: dict[str, list[float]] = defaultdict(list)
+    system_costs: dict[str, list[float]] = defaultdict(list)
+    system_tokens: dict[str, list[float]] = defaultdict(list)
     case_lookup: dict[str, dict[str, float]] = defaultdict(dict)
+    case_cost_lookup: dict[str, dict[str, float]] = defaultdict(dict)
     for (system, case), agent_values in sorted(grouped.items()):
         case_mean = mean(agent_values)
         assert case_mean is not None
         systems[system].append(case_mean)
         case_lookup[system][case] = case_mean
+        case_resources = resources[(system, case)]
+        case_cost = mean([item["cost_usd"] for item in case_resources])
+        case_tokens = mean([item["total_tokens"] for item in case_resources])
+        if case_cost is not None:
+            system_costs[system].append(case_cost)
+            case_cost_lookup[system][case] = case_cost
+        if case_tokens is not None:
+            system_tokens[system].append(case_tokens)
         case_rows.append({
             "system_id": system, "case_id": case, "n_agent_runs": len(agent_values),
             "case_mean": case_mean, "agent_std": sample_std(agent_values),
+            "mean_cost_usd": case_cost, "mean_total_tokens": case_tokens,
         })
 
     system_rows = {
         system: {
             "n_cases": len(values), "mean": mean(values), "case_std": sample_std(values),
+            "mean_cost_usd_per_case": mean(system_costs[system]),
+            "mean_tokens_per_case": mean(system_tokens[system]),
+            "quality_per_usd": (
+                mean(values) / mean(system_costs[system])
+                if mean(system_costs[system]) not in (None, 0) else None
+            ),
             "statuses": dict(status_counts[system]),
         }
         for system, values in sorted(systems.items())
@@ -122,12 +154,19 @@ def summarize_experiment(
     for system in status_counts:
         system_rows.setdefault(system, {
             "n_cases": 0, "mean": None, "case_std": None, "statuses": dict(status_counts[system]),
+            "mean_cost_usd_per_case": None, "mean_tokens_per_case": None,
+            "quality_per_usd": None,
         })
 
     comparison = None
     if baseline and challenger:
         common = sorted(set(case_lookup[baseline]) & set(case_lookup[challenger]))
         differences = [case_lookup[challenger][case] - case_lookup[baseline][case] for case in common]
+        cost_common = sorted(set(case_cost_lookup[baseline]) & set(case_cost_lookup[challenger]))
+        cost_ratios = [
+            case_cost_lookup[challenger][case] / case_cost_lookup[baseline][case]
+            for case in cost_common if case_cost_lookup[baseline][case] > 0
+        ]
         sd = sample_std(differences)
         comparison = {
             "baseline": baseline, "challenger": challenger, "n_paired_cases": len(common),
@@ -135,6 +174,8 @@ def summarize_experiment(
             "bootstrap_95_ci": bootstrap_ci(differences),
             "paired_permutation_p": paired_permutation_p(differences),
             "cohen_dz": (mean(differences) / sd) if differences and sd not in (None, 0) else None,
+            "mean_cost_ratio": mean(cost_ratios),
+            "n_paired_cost_cases": len(cost_ratios),
         }
 
     judge_stds = [row["judge_std"] for row in runs if row["judge_std"] is not None]
