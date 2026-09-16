@@ -1,8 +1,11 @@
 # Source-valid Round 1 实验报告
 
-实验 ID：`v41_source_valid_round1_20260916`  
-日期：2026-09-16  
-实验分支：`codex/thesis-experiment-upgrades-industry`  
+实验 ID：`v41_source_valid_round1_20260916`
+
+日期：2026-09-16
+
+实验分支：`codex/thesis-experiment-upgrades-industry`
+
 评分协议：`local-deepseek-v41-nonthinking-v1`
 
 ## 1. 结论先行
