@@ -4,6 +4,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildRunDirectory, validateDataSplit } from "./src/experiment.mjs";
+import { SkillPackage } from "./src/skills.mjs";
+import { assertCaseSplit } from "./src/split-registry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.REPO_ROOT ?? resolve(HERE, "..");
@@ -12,11 +14,24 @@ function arg(name, dflt) {
   return i > 0 ? process.argv[i + 1] : dflt;
 }
 const dryRun = process.argv.includes("--dry-run");
-const flags = arg("flags", "11,12").split(",").map(Number);
+const benchmarkKind = arg("benchmark-kind", "insightbench");
+if (!["insightbench", "insighteval"].includes(benchmarkKind)) {
+  throw new Error(`unsupported benchmark-kind: ${benchmarkKind}`);
+}
+const defaultBenchmarkDir = benchmarkKind === "insighteval"
+  ? `${REPO}/run_on_benchmark/InsightEval-official`
+  : `${REPO}/run_on_benchmark/insight-bench`;
+const benchmarkDir = arg("benchmark-dir", process.env.BENCH_DIR ?? defaultBenchmarkDir);
+const split = validateDataSplit(arg(
+  "split", benchmarkKind === "insighteval" ? "target-test" : "source-train",
+));
+const defaultCases = benchmarkKind === "insighteval" ? "1,2"
+  : split === "source-train" ? "1,2"
+    : split === "source-valid" ? "9,10" : "13,14";
+const caseNumbers = arg("cases", arg("flags", defaultCases)).split(",").map(Number);
 const systems = arg("systems", "pi-core,pi-manual-skills").split(",").filter(Boolean);
 const repeats = Number(arg("agent-runs", 3));
 const experimentId = arg("experiment", "v41_baseline");
-const split = validateDataSplit(arg("split", "source-train"));
 const skillPackage = arg("skill-package", process.env.SKILL_PACKAGE_PATH ?? "");
 const outRoot = arg("out-root", `${REPO}/results/experiments`);
 const layers = arg("layers", "3");
@@ -32,9 +47,18 @@ const goalSufficiency = arg("goal-sufficiency", "1");
 if (systems.includes("pi-auto-skills") && !skillPackage) {
   throw new Error("pi-auto-skills matrix requires --skill-package");
 }
+if (systems.includes("pi-auto-skills")) SkillPackage.load(skillPackage, { requireFrozen: true });
 
-if (!Number.isInteger(repeats) || repeats < 1 || flags.some((flag) => !Number.isInteger(flag))) {
-  throw new Error("flags and agent-runs must be positive integers");
+if (!Number.isInteger(repeats) || repeats < 1 || caseNumbers.some((value) => !Number.isInteger(value) || value < 1)) {
+  throw new Error("cases and agent-runs must be positive integers");
+}
+if (benchmarkKind === "insighteval" && split !== "target-test") {
+  throw new Error("InsightEval is reserved for target-test");
+}
+const benchmarkId = benchmarkKind === "insighteval" ? "insighteval-official" : "insightbench-overhaul";
+for (const caseNumber of caseNumbers) {
+  const caseId = benchmarkKind === "insighteval" ? `insighteval-${caseNumber}` : `flag-${caseNumber}`;
+  assertCaseSplit(benchmarkId, caseId, split);
 }
 
 const tasks = [];
@@ -42,9 +66,9 @@ for (const systemId of systems) {
   if (!["pi-core", "pi-manual-skills", "pi-auto-skills"].includes(systemId)) {
     throw new Error(`unsupported generation system: ${systemId}`);
   }
-  for (const flag of flags) {
+  for (const caseNumber of caseNumbers) {
     for (let agentRun = 1; agentRun <= repeats; agentRun += 1) {
-      const caseId = `flag-${flag}`;
+      const caseId = benchmarkKind === "insighteval" ? `insighteval-${caseNumber}` : `flag-${caseNumber}`;
       const runDir = buildRunDirectory({ outRoot, experimentId, systemId, caseId, agentRun });
       let existingStatus = null;
       if (existsSync(`${runDir}/manifest.json`)) {
@@ -53,14 +77,14 @@ for (const systemId of systems) {
       } else if (existsSync(runDir)) {
         existingStatus = "incomplete";
       }
-      tasks.push({ systemId, flag, agentRun, runDir, existingStatus });
+      tasks.push({ systemId, caseNumber, caseId, agentRun, runDir, existingStatus });
     }
   }
 }
 
 if (dryRun) {
   console.log(JSON.stringify({
-    experiment_id: experimentId, split,
+    experiment_id: experimentId, benchmark_kind: benchmarkKind, benchmark_dir: benchmarkDir, split,
     config: { layers, questions, max_questions: maxQuestions || null, pool: poolSize, max_insights: maxInsights, summary_samples: summarySamples, reasoning, thinking_mode: true },
     tasks,
   }, null, 2));
@@ -71,11 +95,13 @@ const counts = { success: 0, failed: 0, skipped: 0 };
 for (const task of tasks) {
   if (task.existingStatus) {
     counts.skipped += 1;
-    console.log(`skip ${task.systemId}/${task.flag}/run-${task.agentRun}: ${task.existingStatus}`);
+    console.log(`skip ${task.systemId}/${task.caseId}/run-${task.agentRun}: ${task.existingStatus}`);
     continue;
   }
   const args = [
-    "generate_insightbench.mjs", "--flag", String(task.flag), "--experiment", experimentId,
+    "generate_insightbench.mjs", "--benchmark-kind", benchmarkKind, "--benchmark-dir", benchmarkDir,
+    benchmarkKind === "insighteval" ? "--instance" : "--flag", String(task.caseNumber),
+    "--experiment", experimentId,
     "--system", task.systemId, "--agent-run", String(task.agentRun), "--layers", layers,
     "--split", split,
     "--questions", questions, "--pool", poolSize,

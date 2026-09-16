@@ -50,14 +50,21 @@ npm run skills -- extract `
 ### 3. 纯度审计（无 API）
 
 ```powershell
+npm run skills -- vocabulary `
+  --benchmark-dir ../run_on_benchmark/insight-bench `
+  --cases 1,2,3,4,5,6,7,8 `
+  --output skills/work/forbidden_terms.json
+
 npm run skills -- audit `
   --package skills/work/candidates.json `
-  --forbidden-terms skills/work/forbidden_terms.txt `
+  --forbidden-terms skills/work/forbidden_terms.json `
   --output skills/work/audit.json
 ```
 
-审计检查 runtime 文本中的 source-specific 词、字面标识符、非法 stage 和缺失
-provenance。审计失败的包不能冻结。
+禁词由 `source-train` 的 schema、角色和元数据自动生成；通用词（如 category、
+time、count）不会因为恰好也是列名而被误杀。审计检查 runtime 文本中的
+source-specific 词、字面标识符、非法 stage 和缺失 provenance。审计失败的包
+不能冻结。
 
 ### 4. 跨 case 验证（结果聚合本身无 API）
 
@@ -66,6 +73,31 @@ treated arm 至少三次独立生成。所有 case 的 treated-control delta 都
 并且成本比不能超过门槛。
 
 ```powershell
+npm run skills -- prepare-validation `
+  --package skills/work/candidates.json `
+  --output-dir skills/work/validation_packages `
+  --output skills/work/validation_plan.json `
+  --cases 9,10,11,12 `
+  --agent-runs 3
+
+# 此命令会产生 API 调用；先用 --dry-run 审查完整任务矩阵
+npm run skills:validate -- `
+  --plan skills/work/validation_plan.json `
+  --benchmark-dir ../run_on_benchmark/insight-bench `
+  --dry-run
+
+# 生成完成后每个输出只评分一次；评分器会调用 API，先 dry-run 审查缺失/已完成项
+npm run skills:score -- `
+  --plan skills/work/validation_plan.json `
+  --benchmark-dir ../run_on_benchmark/insight-bench `
+  --dry-run
+
+# 生成和评分完成后，先收集每个 agent run 的配对结果
+npm run skills -- collect-validation `
+  --plan skills/work/validation_plan.json `
+  --out-root ../results/experiments `
+  --output skills/work/validation_records.json
+
 npm run skills -- validate `
   --records skills/work/validation_records.json `
   --min-cases 2 `
@@ -73,6 +105,10 @@ npm run skills -- validate `
   --max-cost-ratio 1.5 `
   --output skills/work/validations.json
 ```
+
+validation planner 会为每条候选 skill 创建只含该 skill 的不可变 package，并安排
+`pi-core` 与 `pi-skill-candidate` 的配对运行。collector 先在每个 agent run 内聚合
+judge，再按 case 形成 control/treated 数组，避免把 judge 重复误当独立样本。
 
 ### 5. 冻结（无 API）
 

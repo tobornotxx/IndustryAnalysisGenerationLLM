@@ -52,6 +52,12 @@
       "role": "proposed-method",
       "generation_mode": "local-generation",
       "skills": "automatically-mined-frozen-package"
+    },
+    "pi-skill-candidate": {
+      "role": "development-validation-arm",
+      "generation_mode": "local-generation",
+      "skills": "single-unfrozen-candidate",
+      "claim_boundary": "Source-valid only; never report as the proposed final method."
     }
   },
   "retired_aliases": {

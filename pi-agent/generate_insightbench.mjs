@@ -48,14 +48,14 @@ const reasoning = arg("reasoning", "medium");
 const outRoot = arg("out-root", `${REPO}/results/experiments`);
 const dryRun = has("dry-run");
 
-if (!["pi-core", "pi-manual-skills", "pi-auto-skills"].includes(systemId)) {
+if (!["pi-core", "pi-manual-skills", "pi-auto-skills", "pi-skill-candidate"].includes(systemId)) {
   throw new Error(`unsupported PI system id: ${systemId}`);
 }
 if ((systemId === "pi-core") === useSkills) {
   throw new Error(`system ${systemId} is inconsistent with use-skills=${useSkills ? 1 : 0}`);
 }
-if (systemId === "pi-auto-skills" && skillPath === DEFAULT_PACKAGE) {
-  throw new Error("pi-auto-skills requires an explicit --skill-package frozen artifact");
+if (["pi-auto-skills", "pi-skill-candidate"].includes(systemId) && skillPath === DEFAULT_PACKAGE) {
+  throw new Error(`${systemId} requires an explicit --skill-package artifact`);
 }
 if (useSkills) {
   SkillPackage.load(skillPath, { requireFrozen: systemId === "pi-auto-skills" });

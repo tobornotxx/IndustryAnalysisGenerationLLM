@@ -77,7 +77,10 @@ test("purity audit catches dataset literals and missing provenance", () => {
   dirty.provenance.source_runs = [];
   const audit = auditSkillPackage({ skills: [dirty] }, { forbiddenTerms: ["assigned_to"] });
   assert.equal(audit.passed, false);
-  assert.deepEqual(new Set(audit.findings.map((finding) => finding.kind)), new Set(["forbidden-term", "missing-source-runs"]));
+  assert.deepEqual(
+    new Set(audit.findings.map((finding) => finding.kind)),
+    new Set(["forbidden-term", "literal-identifier", "missing-source-runs"]),
+  );
 });
 
 test("validation requires positive gains on multiple frozen validation cases", () => {

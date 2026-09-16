@@ -6,6 +6,9 @@ import {
 } from "./src/skill-lifecycle.mjs";
 import { createDeepSeek, makeGenerateJson, UsageTracker } from "./src/agent.mjs";
 import { runSkillExtractionAgent } from "./src/skill-meta-agent.mjs";
+import {
+  buildForbiddenVocabulary, collectValidationRecords, prepareValidationPlan,
+} from "./src/skill-validation.mjs";
 
 const [command] = process.argv.slice(2);
 function arg(name, fallback = undefined) {
@@ -64,8 +67,38 @@ if (command === "mine") {
 } else if (command === "audit") {
   const pkg = readJson(required("package"));
   const forbiddenPath = required("forbidden-terms");
-  const forbiddenTerms = readFileSync(forbiddenPath, "utf8").split(/\r?\n/).filter(Boolean);
+  const forbiddenText = readFileSync(forbiddenPath, "utf8");
+  let forbiddenTerms;
+  try {
+    const parsed = JSON.parse(forbiddenText);
+    forbiddenTerms = Array.isArray(parsed) ? parsed : parsed.terms;
+  } catch {
+    forbiddenTerms = forbiddenText.split(/\r?\n/).filter(Boolean);
+  }
+  if (!Array.isArray(forbiddenTerms)) throw new Error("forbidden terms must be a JSON array/object or line list");
   writeJsonExclusive(required("output"), auditSkillPackage(pkg, { forbiddenTerms }));
+} else if (command === "vocabulary") {
+  const caseIds = required("cases").split(",").map((value) => value.startsWith("flag-") ? value : `flag-${value}`);
+  writeJsonExclusive(required("output"), {
+    schema_version: 1,
+    source: "source-train schema and metadata",
+    terms: buildForbiddenVocabulary({ benchmarkDir: required("benchmark-dir"), caseIds }),
+  });
+} else if (command === "prepare-validation") {
+  const packagePath = required("package");
+  const outputDir = required("output-dir");
+  const caseIds = arg("cases", "9,10,11,12").split(",").map((value) => value.startsWith("flag-") ? value : `flag-${value}`);
+  const plan = prepareValidationPlan(readJson(packagePath), {
+    outputDir, caseIds, agentRuns: Number(arg("agent-runs", 3)),
+  });
+  writeJsonExclusive(required("output"), plan);
+} else if (command === "collect-validation") {
+  const records = collectValidationRecords(readJson(required("plan")), {
+    outRoot: required("out-root"),
+    scorerId: arg("scorer-id", "local-deepseek-v41-thinking-v1"),
+    metric: arg("metric", "semantic.primary.f1"),
+  });
+  writeJsonExclusive(required("output"), records);
 } else if (command === "validate") {
   const records = readJson(required("records"));
   writeJsonExclusive(required("output"), validateAblations(records, {
@@ -83,5 +116,5 @@ if (command === "mine") {
   writeJsonExclusive(required("output"), frozen);
   console.log(`frozen ${frozen.skills.length} validated skills as ${frozen.meta.version}`);
 } else {
-  throw new Error("command must be one of: mine, extract, audit, validate, freeze");
+  throw new Error("command must be one of: mine, extract, vocabulary, audit, prepare-validation, collect-validation, validate, freeze");
 }

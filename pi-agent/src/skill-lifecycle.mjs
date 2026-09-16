@@ -207,9 +207,19 @@ export function auditSkillPackage(pkg, { forbiddenTerms = [] } = {}) {
   for (const skill of pkg.skills ?? []) {
     for (const field of RUNTIME_FIELDS) {
       const text = String(skill[field] ?? "").toLowerCase();
+      const withoutPlaceholders = text.replace(/\{[a-z0-9_]+\}/g, "");
       const hits = [...new Set(terms.filter((term) => text.includes(term)))];
       if (hits.length) findings.push({ skill_id: skill.id, field, kind: "forbidden-term", terms: hits });
       if (/`[^`]+`/.test(text)) findings.push({ skill_id: skill.id, field, kind: "literal-identifier" });
+      if (/\b[a-z][a-z0-9]*_[a-z0-9_]+\b/.test(withoutPlaceholders)) {
+        findings.push({ skill_id: skill.id, field, kind: "literal-identifier" });
+      }
+      if (/\b(?:insightbench|insighteval|servicenow|flag-\d+)\b/i.test(text)) {
+        findings.push({ skill_id: skill.id, field, kind: "benchmark-literal" });
+      }
+      if (/\b\d+(?:\.\d+)?%?\b/.test(text)) {
+        findings.push({ skill_id: skill.id, field, kind: "numeric-literal" });
+      }
     }
     if (!skill.provenance?.source_runs?.length) {
       findings.push({ skill_id: skill.id, field: "provenance", kind: "missing-source-runs" });
