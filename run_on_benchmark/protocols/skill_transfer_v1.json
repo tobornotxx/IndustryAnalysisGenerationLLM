@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "protocol_id": "pi-skill-transfer-v1",
+  "status": "frozen-before-formal-api-runs",
+  "hypothesis": "Automatically extracted and validation-gated procedural skills improve held-out analysis quality over the same PI agent without skills.",
+  "generation": {
+    "model": "deepseek-flash",
+    "reasoning": "medium",
+    "thinking_mode": true,
+    "agent_runs_per_case": 3,
+    "fixed_config": {
+      "layers": 3,
+      "questions_per_layer": 2,
+      "max_questions": 6,
+      "pool_size": 4,
+      "max_insights": 10,
+      "summary_samples": 3,
+      "use_insight_bank": true,
+      "goal_sufficiency_check": true
+    }
+  },
+  "scoring": {
+    "scorer_id": "local-deepseek-v41-thinking-v1",
+    "judge_runs_per_prediction": 1,
+    "semantic_metrics": ["recall", "precision", "f1"],
+    "secondary_metrics": ["deterministic", "cost_usd", "token_usage"]
+  },
+  "stages": {
+    "source-train": {
+      "benchmark_id": "insightbench-overhaul",
+      "case_ids": ["flag-1", "flag-2", "flag-3", "flag-4", "flag-5", "flag-6", "flag-7", "flag-8"],
+      "systems": ["pi-core"],
+      "purpose": "Create trajectories for automatic extraction; may update candidate skills."
+    },
+    "source-valid": {
+      "benchmark_id": "insightbench-overhaul",
+      "case_ids": ["flag-9", "flag-10", "flag-11", "flag-12"],
+      "systems": ["pi-core", "pi-skill-candidate"],
+      "purpose": "Accept or reject one candidate at a time; may freeze the final package."
+    },
+    "source-test": {
+      "benchmark_id": "insightbench-overhaul",
+      "case_ids": ["flag-13", "flag-14", "flag-15", "flag-16", "flag-17", "flag-18", "flag-19", "flag-20", "flag-21", "flag-22", "flag-23", "flag-24", "flag-25", "flag-26", "flag-27", "flag-28", "flag-29", "flag-30"],
+      "systems": ["pi-core", "pi-auto-skills"],
+      "purpose": "Primary held-out source-domain result; no protocol, prompt, budget, or skill changes afterward."
+    },
+    "target-test": {
+      "benchmark_id": "insighteval-official",
+      "case_ids": ["insighteval:1-100"],
+      "systems": ["pi-core", "pi-auto-skills"],
+      "purpose": "Cross-benchmark transfer result; run only after source-test and never tune from it."
+    }
+  },
+  "required_order": ["source-train", "source-valid", "source-test", "target-test"],
+  "reporting": {
+    "unit_of_replication": "independent agent run",
+    "aggregation": "report per-system mean, standard deviation, paired case deltas, bootstrap confidence intervals, and cost-normalized quality",
+    "published_baselines": ["datastorm-official-published", "agentpoirot-official-published"],
+    "claim_boundary": "Published baselines are contextual, not matched-model causal comparisons. The causal comparison is pi-core versus pi-auto-skills."
+  }
+}

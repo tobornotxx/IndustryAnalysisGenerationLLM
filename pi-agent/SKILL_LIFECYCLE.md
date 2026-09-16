@@ -130,6 +130,21 @@ npm run skills -- freeze `
 - `pi-manual-skills`：加载仓库内的手工候选包，只用于说明手工 guidance 的效果。
 - `pi-auto-skills`：只接受 extraction agent 产出且通过验证的 frozen package。
 
+## 正式实验开跑前体检
+
+正式协议固定在 `run_on_benchmark/protocols/skill_transfer_v1.json`。每个正式阶段开始前运行：
+
+```powershell
+npm run preflight -- --stage source-train
+npm run preflight -- --stage source-valid
+npm run preflight -- --stage source-test --skill-package skills/frozen/auto-v1.json
+npm run preflight -- --stage target-test --skill-package skills/frozen/auto-v1.json
+```
+
+体检会核对冻结 split、系统身份、模型、思考模式、三次独立运行、一次评分、
+Skill 包冻结状态与内容哈希，并要求代码仓库完全干净。任何一项不满足都以非零状态退出，
+防止在错误配置上消耗 API 预算。
+
 运行时不会把所有 skill 无条件塞进 prompt。系统先按 stage 和 trigger terms 做
 确定性选择，并把实际选择的 skill id、package hash 和版本写入 manifest。
 

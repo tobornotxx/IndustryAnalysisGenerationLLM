@@ -7,6 +7,7 @@
     "test": "node --test test/*.test.mjs",
     "generate": "node generate_insightbench.mjs",
     "generate:matrix": "node run_generation_matrix.mjs",
+    "preflight": "node experiment_preflight.mjs",
     "skills:validate": "node run_skill_validation.mjs",
     "skills:score": "node score_skill_validation.mjs",
     "skills": "node skill_pipeline.mjs"
