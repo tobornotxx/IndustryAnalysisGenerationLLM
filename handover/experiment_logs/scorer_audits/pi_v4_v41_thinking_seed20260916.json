@@ -1,0 +1,129 @@
+{
+  "created_at": "2026-09-16T09:43:15.600806+00:00",
+  "sampling": {
+    "population": 5,
+    "sample_size": 2,
+    "seed": 20260916,
+    "selected": [
+      "flag-2",
+      "flag-3"
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "flag-2",
+      "source": "D:\\DataAgents\\.worktrees\\industry\\handover\\experiment_logs\\pi\\pi_v4\\flag-2_result.json",
+      "n_gt": 4,
+      "n_pred": 16,
+      "n_pairs": 64,
+      "historical_scorer": {
+        "api_base": "https://api.deepseek.com",
+        "model": "deepseek-v4-flash",
+        "logprobs": "True",
+        "mc_samples": "N/A",
+        "prompt_order": "pred_first"
+      },
+      "current_scorer": {
+        "api_base": "https://api.deepseek.com",
+        "model": "deepseek-flash",
+        "logprobs": "True",
+        "mc_samples": "N/A",
+        "prompt_order": "pred_first",
+        "thinking": "enabled",
+        "max_tokens": "4096"
+      },
+      "historical": {
+        "recall": 0.849992883152126,
+        "precision": 0.6062462372829176,
+        "f1": 0.7077202911212692
+      },
+      "current": {
+        "recall": 0.9249999222057572,
+        "precision": 0.63124355527966,
+        "f1": 0.7503970271670328
+      },
+      "delta": {
+        "recall": 0.07500703905363126,
+        "precision": 0.02499731799674243,
+        "f1": 0.04267673604576361
+      },
+      "pairwise": {
+        "pearson_r": 0.8294774873523464,
+        "mean_absolute_delta": 0.07377911314128294,
+        "median_absolute_delta": 1.667900526997057e-07,
+        "mean_signed_delta": 0.014396114985863576,
+        "zero_cells_current": 1
+      },
+      "usage": {
+        "calls": 64,
+        "prompt_tokens": 32800,
+        "completion_tokens": 39464,
+        "cache_hit_tokens": 4480,
+        "cache_miss_tokens": 28320,
+        "prompt_order": "pred_first",
+        "cache_hit_rate": 0.1366
+      }
+    },
+    {
+      "case_id": "flag-3",
+      "source": "D:\\DataAgents\\.worktrees\\industry\\handover\\experiment_logs\\pi\\pi_v4\\flag-3_result.json",
+      "n_gt": 3,
+      "n_pred": 30,
+      "n_pairs": 90,
+      "historical_scorer": {
+        "api_base": "https://api.deepseek.com",
+        "model": "deepseek-v4-flash",
+        "logprobs": "True",
+        "mc_samples": "N/A",
+        "prompt_order": "pred_first"
+      },
+      "current_scorer": {
+        "api_base": "https://api.deepseek.com",
+        "model": "deepseek-flash",
+        "logprobs": "True",
+        "mc_samples": "N/A",
+        "prompt_order": "pred_first",
+        "thinking": "enabled",
+        "max_tokens": "4096"
+      },
+      "historical": {
+        "recall": 0.966667302541332,
+        "precision": 0.7200562819512698,
+        "f1": 0.8253336470197767
+      },
+      "current": {
+        "recall": 0.9666671334322063,
+        "precision": 0.7025347699309564,
+        "f1": 0.8137029688467339
+      },
+      "delta": {
+        "recall": -1.6910912570278214e-07,
+        "precision": -0.01752151202031338,
+        "f1": -0.011630678173042863
+      },
+      "pairwise": {
+        "pearson_r": 0.8372329763456694,
+        "mean_absolute_delta": 0.10498681999213919,
+        "median_absolute_delta": 1.136329049172824e-05,
+        "mean_signed_delta": 0.02058428831370654,
+        "zero_cells_current": 2
+      },
+      "usage": {
+        "calls": 90,
+        "prompt_tokens": 74619,
+        "completion_tokens": 99896,
+        "cache_hit_tokens": 14720,
+        "cache_miss_tokens": 59899,
+        "prompt_order": "pred_first",
+        "cache_hit_rate": 0.1973
+      }
+    }
+  ],
+  "aggregate": {
+    "historical_f1_mean": 0.766526969070523,
+    "current_f1_mean": 0.7820499980068834,
+    "f1_delta_mean": 0.015523028936360372,
+    "pairwise_pearson_mean": 0.8333552318490078,
+    "pairwise_mae_mean": 0.08938296656671106
+  }
+}
