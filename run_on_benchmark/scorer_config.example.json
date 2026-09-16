@@ -3,6 +3,6 @@
   "api_key": "",
   "model": "deepseek-flash",
   "temperature": 0,
-  "max_tokens": 50,
-  "thinking": "disabled"
+  "max_tokens": 4096,
+  "thinking": "enabled"
 }

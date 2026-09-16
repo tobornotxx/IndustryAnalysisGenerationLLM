@@ -43,15 +43,21 @@ _SCORER_MAX_TOKENS = _SCORER_CFG["max_tokens"]
 _SCORER_THINKING = _SCORER_CFG["thinking"]
 
 
-def _generation_controls(max_tokens: int) -> dict[str, Any]:
-    """Controls supported by current DeepSeek Chat Completions.
+def _generation_controls(nonthinking_max_tokens: int) -> dict[str, Any]:
+    """Return explicit, versioned DeepSeek generation controls for the judge.
 
-    G-Eval needs a short rating, not agent-style reasoning.  V4.1 Flash defaults
-    to thinking mode, so leaving this implicit can spend thousands of hidden
-    reasoning tokens on a one-token judgement.
+    The historical G-Eval scores were produced with DeepSeek thinking enabled.
+    In thinking mode ``max_tokens`` must leave room for the reasoning trace
+    before the final ``<rating>``; capping it at the short non-thinking response
+    budget truncates the rating or materially changes the judge scale.
     """
+    max_tokens = (
+        _SCORER_MAX_TOKENS
+        if _SCORER_THINKING == "enabled"
+        else min(_SCORER_MAX_TOKENS, nonthinking_max_tokens)
+    )
     return {
-        "max_tokens": min(_SCORER_MAX_TOKENS, max_tokens),
+        "max_tokens": max_tokens,
         "extra_body": {"thinking": {"type": _SCORER_THINKING}},
     }
 

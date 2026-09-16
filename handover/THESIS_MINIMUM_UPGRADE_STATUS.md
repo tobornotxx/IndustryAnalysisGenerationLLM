@@ -28,7 +28,7 @@
 ### 无额外 LLM 调用的指标与统计
 
 - 本地指标：双向 token overlap、ROUGE-1、ROUGE-L、数字事实覆盖、输出数量/长度/重复率。
-- 正式本地 Judge 协议固定为 `local-deepseek-v41-nonthinking-v1`；关闭默认长思考并限制 50 个输出 token，旧思考模式分数不得混入。
+- 正式本地 Judge 协议固定为 `local-deepseek-v41-thinking-v1`；显式开启思考并给推理过程保留 4096 个输出 token。`local-deepseek-v41-nonthinking-v1` 只保留为一次无效的诊断协议，不得进入论文主结果。
 - 官方 InsightEval 指标：直接加载作者仓库的 ROUGE-1 最佳匹配 recall、precision、Insight F1。
 - 聚合顺序为 Judge 重复 → Agent 重复 → case，避免把一次随机波动当成独立样本。
 - 汇总包含 case-level bootstrap 95% CI、配对置换检验、Cohen's dz、Agent 方差、Judge 方差和失败状态。

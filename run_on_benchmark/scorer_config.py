@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 CANONICAL_DEEPSEEK_MODEL = "deepseek-flash"
-DEFAULT_SCORER_ID = "local-deepseek-v41-nonthinking-v1"
+DEFAULT_SCORER_ID = "local-deepseek-v41-thinking-v1"
 DEPRECATED_ALIASES = {
     "deepseek-v4-flash": CANONICAL_DEEPSEEK_MODEL,
     "deepseek-v4-flash-vision-exp": CANONICAL_DEEPSEEK_MODEL,
@@ -46,7 +46,7 @@ def load_scorer_config(
     legacy_default = legacy.get("default") or legacy
 
     model = env.get("SCORER_MODEL") or cfg.get("model") or CANONICAL_DEEPSEEK_MODEL
-    thinking = env.get("SCORER_THINKING") or cfg.get("thinking") or "disabled"
+    thinking = env.get("SCORER_THINKING") or cfg.get("thinking") or "enabled"
     if thinking not in {"enabled", "disabled"}:
         raise ValueError("SCORER_THINKING must be 'enabled' or 'disabled'")
     return {
@@ -65,6 +65,6 @@ def load_scorer_config(
         ),
         "model": canonicalize_model_name(model),
         "temperature": float(env.get("SCORER_TEMPERATURE") or cfg.get("temperature") or 0),
-        "max_tokens": int(env.get("SCORER_MAX_TOKENS") or cfg.get("max_tokens") or 50),
+        "max_tokens": int(env.get("SCORER_MAX_TOKENS") or cfg.get("max_tokens") or 4096),
         "thinking": thinking,
     }

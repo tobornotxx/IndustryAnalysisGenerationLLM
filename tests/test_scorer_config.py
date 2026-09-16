@@ -16,8 +16,8 @@ class ScorerConfigTests(unittest.TestCase):
             cfg = load_scorer_config(env={}, legacy_path=legacy)
         self.assertEqual(cfg["model"], "deepseek-flash")
         self.assertEqual(cfg["api_key"], "legacy-key")
-        self.assertEqual(cfg["thinking"], "disabled")
-        self.assertEqual(cfg["max_tokens"], 50)
+        self.assertEqual(cfg["thinking"], "enabled")
+        self.assertEqual(cfg["max_tokens"], 4096)
 
     def test_environment_has_priority_and_alias_is_normalized(self):
         cfg = load_scorer_config(

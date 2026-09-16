@@ -6,7 +6,9 @@
 
 实验分支：`codex/thesis-experiment-upgrades-industry`
 
-评分协议：`local-deepseek-v41-nonthinking-v1`
+评分协议：`local-deepseek-v41-nonthinking-v1`（已判定尺度失真；本报告语义分数等待思考模式复评替换）
+
+> **勘误（2026-09-16）：** 非思考评分器会把明确同义的复杂 insight 系统性压低，且对原始长版与忠实压缩版给出异常大的分差。本报告中的语义 Recall、Precision、F1、Summary 及其系统排序暂不可引用；运行成功率、耗时、轨迹和确定性指标不受影响。
 
 ## 1. 结论先行
 
