@@ -40,6 +40,13 @@ class AgentPoirotAdapterTests(unittest.TestCase):
         self.assertEqual(len(content), 2)
         self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
 
+    def test_missing_upstream_plot_falls_back_to_text(self):
+        clients = []
+        factory = lambda **kwargs: clients.append(_Client(**kwargs)) or clients[-1]
+        chat = make_deepseek_chat(api_key="x", client_factory=factory)
+        self.assertEqual(chat("inspect", "missing-plot.jpg"), "ok")
+        self.assertEqual(clients[0].request["messages"][0]["content"], "inspect")
+
     def test_normalize_official_output(self):
         result = normalize_insights([
             {"header": "Trend", "question": "Why?", "insight": "Sales increased."},

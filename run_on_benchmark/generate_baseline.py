@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+import time
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -169,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"refusing to overwrite existing run: {run_dir}")
     run_dir.mkdir(parents=True)
     write_json_atomic(run_dir / "manifest.json", {**plan, "status": "running"})
+    started = time.perf_counter()
     try:
         prediction = generate(
             system=args.system, benchmark_dir=args.benchmark_dir, case_id=case_id,
@@ -182,12 +184,14 @@ def main(argv: list[str] | None = None) -> int:
         write_json_exclusive(run_dir / "prediction.json", prediction)
         write_json_atomic(run_dir / "manifest.json", {
             **plan, "status": "success", "completed_at": datetime.now(timezone.utc).isoformat(),
+            "elapsed_sec": round(time.perf_counter() - started, 3),
         })
         print(run_dir)
         return 0
     except Exception as error:
         write_json_atomic(run_dir / "manifest.json", {
             **plan, "status": "failed", "completed_at": datetime.now(timezone.utc).isoformat(),
+            "elapsed_sec": round(time.perf_counter() - started, 3),
             "error": {"type": type(error).__name__, "message": str(error), "traceback": traceback.format_exc()[-8000:]},
         })
         raise

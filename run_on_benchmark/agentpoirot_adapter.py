@@ -43,7 +43,7 @@ def make_deepseek_chat(
 
     def chat(prompt: str, image: str | None = None) -> str:
         content: str | list[dict[str, Any]] = prompt
-        if image:
+        if image and Path(image).is_file():
             image_path = Path(image)
             mime = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
             encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
