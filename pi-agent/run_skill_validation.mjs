@@ -1,6 +1,6 @@
 /** Execute or dry-run a validation plan created by skill_pipeline.mjs. */
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildRunDirectory } from "./src/experiment.mjs";
@@ -56,6 +56,18 @@ for (const task of tasks) {
   // A failed or interrupted run is resumable in-place. Only a completed
   // success is immutable and safe to skip.
   if (task.existingStatus === "success") { counts.skipped += 1; continue; }
+  if (task.existingStatus) {
+    // Preserve the failed attempt for reliability analysis, but move it out
+    // of the immutable experiment tree before recreating the canonical run.
+    const retryDir = join(
+      outRoot, "_failed_attempts", task.experiment_id, task.system_id, task.case_id,
+    );
+    mkdirSync(retryDir, { recursive: true });
+    const archivedRun = join(
+      retryDir, `${basename(task.runDir)}-${Date.now()}-${process.pid}`,
+    );
+    renameSync(task.runDir, archivedRun);
+  }
   const args = [
     "generate_insightbench.mjs", "--flag", task.case_id.replace("flag-", ""),
     "--experiment", task.experiment_id, "--system", task.system_id,
