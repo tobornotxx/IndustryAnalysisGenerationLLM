@@ -6,7 +6,10 @@ const CandidateSchema = Type.Object({
   id: Type.String(),
   trigger: Type.String(),
   trigger_terms: Type.Array(Type.String()),
-  stages: Type.Array(Type.String()),
+  stages: Type.Array(Type.Union([
+    Type.Literal("planner"), Type.Literal("executor"), Type.Literal("sufficiency"),
+    Type.Literal("insight_bank"), Type.Literal("summary"),
+  ])),
   action: Type.String(),
   rationale: Type.String(),
   implementation: Type.Optional(Type.String()),
@@ -63,6 +66,7 @@ export async function runSkillExtractionAgent({ episodes, deepseek, usage, maxTu
     "Propose only procedural actions that can transfer to unrelated schemas.",
     "Never include a benchmark name, answer, literal column, entity, date, value, or threshold.",
     "Every candidate needs a trigger, trigger_terms, runtime stages, action, rationale, and implementation.",
+    "Runtime stages may only be planner, executor, sufficiency, insight_bank, or summary.",
     "Finish by calling submit_skill_candidates exactly once. Do not emit the final package yourself.",
     `Available episodes: ${JSON.stringify(catalog)}`,
   ].join("\n\n");

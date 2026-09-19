@@ -7,6 +7,13 @@ import { randomUUID } from "node:crypto";
 import { assertCaseSplit } from "./split-registry.mjs";
 
 const ALLOWED_STAGES = new Set(["planner", "executor", "sufficiency", "insight_bank", "summary"]);
+const STAGE_ALIASES = new Map([
+  ["planning", "planner"], ["question_generation", "planner"],
+  ["execution", "executor"], ["analysis", "executor"], ["tool_use", "executor"],
+  ["evaluation", "sufficiency"], ["coverage", "sufficiency"],
+  ["filtering", "insight_bank"], ["selection", "insight_bank"],
+  ["synthesis", "summary"], ["finalization", "summary"], ["reporting", "summary"],
+]);
 const RUNTIME_FIELDS = ["trigger", "action", "rationale", "implementation"];
 
 function nested(value, dotted) {
@@ -105,7 +112,10 @@ export function normalizeCandidate(raw, provenance = {}) {
     id: slug(raw.id || raw.name || raw.trigger),
     trigger: String(raw.trigger ?? "").trim(),
     trigger_terms: [...new Set((raw.trigger_terms ?? []).map((term) => String(term).trim().toLowerCase()).filter(Boolean))],
-    stages: [...new Set((raw.stages ?? []).map(String))],
+    stages: [...new Set((raw.stages ?? []).map((stage) => {
+      const normalized = String(stage).trim().toLowerCase().replace(/[ -]+/g, "_");
+      return STAGE_ALIASES.get(normalized) ?? normalized;
+    }))],
     action: String(raw.action ?? "").trim(),
     rationale: String(raw.rationale ?? "").trim(),
     implementation: String(raw.implementation ?? "prompt-guidance").trim(),
@@ -120,7 +130,7 @@ export function normalizeCandidate(raw, provenance = {}) {
     throw new Error("candidate requires id, trigger, action, and rationale");
   }
   if (!candidate.stages.length || candidate.stages.some((stage) => !ALLOWED_STAGES.has(stage))) {
-    throw new Error(`candidate ${candidate.id} has invalid stages`);
+    throw new Error(`candidate ${candidate.id} has invalid stages: ${candidate.stages.join(", ")}`);
   }
   if (!candidate.trigger_terms.length && !raw.always) {
     throw new Error(`candidate ${candidate.id} requires trigger_terms or always=true`);
@@ -144,6 +154,7 @@ function generalizationPrompt(candidate) {
     "You are the generalization agent. Rewrite this candidate as a dataset-independent procedural skill.",
     "Remove literal columns, entities, dates, values, answers, and benchmark names. Preserve the useful action.",
     "Use placeholders such as {categorical_columns} only when runtime schema substitution is necessary.",
+    "stages must contain only: planner, executor, sufficiency, insight_bank, summary.",
     "Return one JSON object with id, trigger, trigger_terms, stages, action, rationale, implementation, and optional always.",
     JSON.stringify(candidate),
   ].join("\n\n");

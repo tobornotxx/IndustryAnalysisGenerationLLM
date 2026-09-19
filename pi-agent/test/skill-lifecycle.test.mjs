@@ -72,6 +72,14 @@ test("candidate merge refuses semantic conflicts hidden behind one id", () => {
   );
 });
 
+test("common extraction stage aliases normalize to runtime stages", () => {
+  const candidate = normalizeCandidate({
+    id: "finish", trigger: "when done", trigger_terms: ["done"],
+    stages: ["finalization", "tool-use"], action: "Finish cleanly", rationale: "Avoid drift",
+  }, { source_runs: ["r1"], source_cases: ["flag-1"] });
+  assert.deepEqual(candidate.stages, ["summary", "executor"]);
+});
+
 test("purity audit catches dataset literals and missing provenance", () => {
   const dirty = candidate({ action: "Inspect assigned_to and compare groups." });
   dirty.provenance.source_runs = [];
