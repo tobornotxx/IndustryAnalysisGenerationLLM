@@ -20,7 +20,7 @@ const candidatePackage = {
 test("forbidden vocabulary is derived from training schema without generic column words", () => {
   const root = mkdtempSync(join(tmpdir(), "skill-vocabulary-"));
   mkdirSync(join(root, "data", "notebooks"), { recursive: true });
-  writeFileSync(join(root, "table.csv"), "category,assigned_to,opened_at\nHardware,Alice,2024-01-01\n");
+  writeFileSync(join(root, "table.csv"), "number,category,assigned_to,opened_at\n1,Hardware,Alice,2024-01-01\n");
   writeFileSync(join(root, "data", "notebooks", "flag-1.json"), JSON.stringify({
     dataset_csv_path: "table.csv", metadata: { category: "Incident Management", role: "L2 Manager" },
   }));
@@ -28,6 +28,7 @@ test("forbidden vocabulary is derived from training schema without generic colum
   assert.ok(terms.includes("assigned_to"));
   assert.ok(terms.includes("opened_at"));
   assert.ok(!terms.includes("category"));
+  assert.ok(!terms.includes("number"));
 });
 
 test("validation planner creates immutable single-skill packages and paired tasks", () => {

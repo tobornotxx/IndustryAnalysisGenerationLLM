@@ -33,7 +33,7 @@ function csvHeader(line) {
 }
 
 const GENERIC_COLUMNS = new Set([
-  "category", "group", "date", "time", "value", "count", "name", "type", "status", "state",
+  "category", "group", "date", "time", "value", "count", "number", "name", "type", "status", "state",
 ]);
 
 export function buildForbiddenVocabulary({ benchmarkDir, caseIds }) {
