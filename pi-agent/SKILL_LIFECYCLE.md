@@ -107,7 +107,8 @@ npm run skills -- validate `
 ```
 
 validation planner 会为每条候选 skill 创建只含该 skill 的不可变 package，并安排
-`pi-core` 与 `pi-skill-candidate` 的配对运行。collector 先在每个 agent run 内聚合
+`pi-core` 与 `pi-skill-candidate` 的配对运行。所有候选共享同一组 `pi-core` control，
+避免为每条 skill 重复支付完全相同的基线成本。collector 先在每个 agent run 内聚合
 judge，再按 case 形成 control/treated 数组，避免把 judge 重复误当独立样本。
 
 ### 5. 冻结（无 API）

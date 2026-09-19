@@ -63,6 +63,7 @@ export function prepareValidationPlan(candidatePackage, {
   caseIds.forEach((caseId) => assertCaseSplit("insightbench-overhaul", caseId, "source-valid"));
   mkdirSync(outputDir, { recursive: true });
   const plans = [];
+  const controlExperimentId = `skillval-${candidatePackage.meta?.version ?? "auto"}-shared-control`;
   for (const skill of candidatePackage.skills) {
     const packagePath = resolve(outputDir, `candidate-${skill.id}.json`);
     const packageValue = {
@@ -82,7 +83,7 @@ export function prepareValidationPlan(candidatePackage, {
     const tasks = [];
     for (const caseId of caseIds) {
       for (let agentRun = 1; agentRun <= agentRuns; agentRun += 1) {
-        tasks.push({ experiment_id: experimentId, skill_id: skill.id, arm: "control", system_id: "pi-core", case_id: caseId, agent_run: agentRun });
+        tasks.push({ experiment_id: controlExperimentId, skill_id: skill.id, arm: "control", system_id: "pi-core", case_id: caseId, agent_run: agentRun });
         tasks.push({ experiment_id: experimentId, skill_id: skill.id, arm: "treated", system_id: "pi-skill-candidate", case_id: caseId, agent_run: agentRun, skill_package: packagePath });
       }
     }
@@ -94,6 +95,7 @@ export function prepareValidationPlan(candidatePackage, {
     candidate_version: candidatePackage.meta?.version,
     agent_runs: agentRuns,
     case_ids: caseIds,
+    shared_control_experiment_id: controlExperimentId,
     plans,
   };
 }

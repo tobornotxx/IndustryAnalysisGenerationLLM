@@ -38,6 +38,10 @@ test("validation planner creates immutable single-skill packages and paired task
   });
   assert.equal(plan.plans[0].tasks.length, 12);
   assert.equal(plan.plans[0].tasks.filter((task) => task.arm === "control").length, 6);
+  assert.equal(
+    new Set(plan.plans.flatMap((item) => item.tasks.filter((task) => task.arm === "control").map((task) => task.experiment_id))).size,
+    1,
+  );
   assert.ok(existsSync(plan.plans[0].skill_package));
   assert.throws(() => prepareValidationPlan(candidatePackage, {
     outputDir: root, caseIds: ["flag-13"], agentRuns: 3,
