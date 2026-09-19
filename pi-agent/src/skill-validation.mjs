@@ -56,6 +56,7 @@ export function buildForbiddenVocabulary({ benchmarkDir, caseIds }) {
 
 export function prepareValidationPlan(candidatePackage, {
   outputDir, caseIds = ["flag-9", "flag-10", "flag-11", "flag-12"], agentRuns = 3,
+  experimentTag = "",
 } = {}) {
   if (!candidatePackage.skills?.length) throw new Error("candidate package has no skills");
   if (candidatePackage.meta?.frozen) throw new Error("validation planning expects an unfrozen candidate package");
@@ -63,12 +64,13 @@ export function prepareValidationPlan(candidatePackage, {
   caseIds.forEach((caseId) => assertCaseSplit("insightbench-overhaul", caseId, "source-valid"));
   mkdirSync(outputDir, { recursive: true });
   const plans = [];
-  const controlExperimentId = `skillval-${candidatePackage.meta?.version ?? "auto"}-shared-control`;
+  const validationVersion = [candidatePackage.meta?.version ?? "auto", experimentTag].filter(Boolean).join("-");
+  const controlExperimentId = `skillval-${validationVersion}-shared-control`;
   for (const skill of candidatePackage.skills) {
     const packagePath = resolve(outputDir, `candidate-${skill.id}.json`);
     const packageValue = {
       meta: {
-        version: `${candidatePackage.meta?.version ?? "auto"}-${skill.id}-validation`,
+        version: `${validationVersion}-${skill.id}-validation`,
         produced_by: candidatePackage.meta?.produced_by ?? "pi-skill-extraction-agent",
         status: "validation-candidate",
         frozen: false,
@@ -79,7 +81,7 @@ export function prepareValidationPlan(candidatePackage, {
       config: candidatePackage.config ?? {},
     };
     writeJsonExclusive(packagePath, packageValue);
-    const experimentId = `skillval-${candidatePackage.meta?.version ?? "auto"}-${skill.id}`;
+    const experimentId = `skillval-${validationVersion}-${skill.id}`;
     const tasks = [];
     for (const caseId of caseIds) {
       for (let agentRun = 1; agentRun <= agentRuns; agentRun += 1) {
@@ -93,6 +95,7 @@ export function prepareValidationPlan(candidatePackage, {
     schema_version: 1,
     split: "source-valid",
     candidate_version: candidatePackage.meta?.version,
+    experiment_tag: experimentTag || null,
     agent_runs: agentRuns,
     case_ids: caseIds,
     shared_control_experiment_id: controlExperimentId,

@@ -89,7 +89,7 @@ if (command === "mine") {
   const outputDir = required("output-dir");
   const caseIds = arg("cases", "9,10,11,12").split(",").map((value) => value.startsWith("flag-") ? value : `flag-${value}`);
   const plan = prepareValidationPlan(readJson(packagePath), {
-    outputDir, caseIds, agentRuns: Number(arg("agent-runs", 3)),
+    outputDir, caseIds, agentRuns: Number(arg("agent-runs", 3)), experimentTag: arg("tag", ""),
   });
   writeJsonExclusive(required("output"), plan);
 } else if (command === "collect-validation") {
