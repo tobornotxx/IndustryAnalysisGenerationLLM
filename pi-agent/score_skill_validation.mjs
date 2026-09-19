@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildRunDirectory } from "./src/experiment.mjs";
+import { deduplicateRunTasks } from "./src/skill-validation.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.REPO_ROOT ?? resolve(HERE, "..");
@@ -24,7 +25,7 @@ const judgeRun = Number(arg("judge-run", "1"));
 const dryRun = process.argv.includes("--dry-run");
 if (!Number.isInteger(judgeRun) || judgeRun < 1) throw new Error("judge-run must be a positive integer");
 
-const tasks = (plan.plans ?? []).flatMap((skillPlan) => skillPlan.tasks).map((task) => {
+const tasks = deduplicateRunTasks((plan.plans ?? []).flatMap((skillPlan) => skillPlan.tasks).map((task) => {
   const runDir = buildRunDirectory({
     outRoot, experimentId: task.experiment_id, systemId: task.system_id,
     caseId: task.case_id, agentRun: task.agent_run,
@@ -35,7 +36,7 @@ const tasks = (plan.plans ?? []).flatMap((skillPlan) => skillPlan.tasks).map((ta
     ...task, predictionPath, scorePath,
     predictionExists: existsSync(predictionPath), scoreExists: existsSync(scorePath),
   };
-});
+}));
 
 if (dryRun) {
   console.log(JSON.stringify({

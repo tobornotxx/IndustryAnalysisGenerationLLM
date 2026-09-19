@@ -143,3 +143,12 @@ export function collectValidationRecords(plan, {
   }
   return records;
 }
+
+export function deduplicateRunTasks(tasks) {
+  const unique = new Map();
+  for (const task of tasks) {
+    const key = task.runDir ?? [task.experiment_id, task.system_id, task.case_id, task.agent_run].join("/");
+    if (!unique.has(key)) unique.set(key, task);
+  }
+  return [...unique.values()];
+}

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildForbiddenVocabulary, collectValidationRecords, prepareValidationPlan,
+  buildForbiddenVocabulary, collectValidationRecords, deduplicateRunTasks, prepareValidationPlan,
 } from "../src/skill-validation.mjs";
 
 const candidatePackage = {
@@ -29,6 +29,15 @@ test("forbidden vocabulary is derived from training schema without generic colum
   assert.ok(terms.includes("opened_at"));
   assert.ok(!terms.includes("category"));
   assert.ok(!terms.includes("number"));
+});
+
+test("shared control tasks execute and score only once", () => {
+  const tasks = [
+    { experiment_id: "control", system_id: "pi-core", case_id: "flag-9", agent_run: 1, skill_id: "a" },
+    { experiment_id: "control", system_id: "pi-core", case_id: "flag-9", agent_run: 1, skill_id: "b" },
+    { experiment_id: "treated-a", system_id: "pi-skill-candidate", case_id: "flag-9", agent_run: 1 },
+  ];
+  assert.equal(deduplicateRunTasks(tasks).length, 2);
 });
 
 test("validation planner creates immutable single-skill packages and paired tasks", () => {

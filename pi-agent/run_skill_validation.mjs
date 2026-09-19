@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildRunDirectory } from "./src/experiment.mjs";
+import { deduplicateRunTasks } from "./src/skill-validation.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 function arg(name, fallback) {
@@ -23,7 +24,7 @@ const configArgs = [
   "--summary-samples", arg("summary-samples", "3"), "--reasoning", arg("reasoning", "medium"),
 ];
 
-const tasks = (plan.plans ?? []).flatMap((skillPlan) => skillPlan.tasks).map((task) => {
+const tasks = deduplicateRunTasks((plan.plans ?? []).flatMap((skillPlan) => skillPlan.tasks).map((task) => {
   const runDir = buildRunDirectory({
     outRoot, experimentId: task.experiment_id, systemId: task.system_id,
     caseId: task.case_id, agentRun: task.agent_run,
@@ -33,7 +34,7 @@ const tasks = (plan.plans ?? []).flatMap((skillPlan) => skillPlan.tasks).map((ta
     existingStatus = JSON.parse(readFileSync(`${runDir}/manifest.json`, "utf8")).status ?? "unknown";
   } else if (existsSync(runDir)) existingStatus = "incomplete";
   return { ...task, runDir, existingStatus };
-});
+}));
 
 if (dryRun) {
   console.log(JSON.stringify({ schema_version: 1, split: plan.split, tasks }, null, 2));
