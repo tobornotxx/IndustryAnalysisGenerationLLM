@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SkillPackage } from "../src/skills.mjs";
+import { SkillPackage, selectRuntimeSkills } from "../src/skills.mjs";
 
 const manual = {
   meta: { status: "candidate", frozen: false },
@@ -31,4 +31,14 @@ test("frozen packages can be loaded in strict mode", () => {
   const pkg = SkillPackage.load(path, { requireFrozen: true });
   assert.equal(pkg.skills.length, 2);
   assert.match(pkg.hash, /^[a-f0-9]{64}$/);
+});
+
+test("validation candidates are forced into every declared runtime stage", () => {
+  const pkg = new SkillPackage({
+    meta: { status: "validation-candidate" },
+    skills: [{ id: "candidate", action: "Check labels", trigger_terms: ["never-matches"], stages: ["executor", "summary"] }],
+  });
+  assert.deepEqual(selectRuntimeSkills(pkg, "executor", "unrelated goal", { forceAll: true }).map((s) => s.id), ["candidate"]);
+  assert.deepEqual(selectRuntimeSkills(pkg, "summary", "unrelated goal", { forceAll: true }).map((s) => s.id), ["candidate"]);
+  assert.deepEqual(selectRuntimeSkills(pkg, "sufficiency", "unrelated goal", { forceAll: true }), []);
 });

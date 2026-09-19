@@ -32,6 +32,7 @@ import {
 import {
   SkillPackage,
   describeCategoricalColumns,
+  selectRuntimeSkills,
   EXECUTOR_SKILL_IDS,
   SUFFICIENCY_SKILL_IDS,
 } from "./skills.mjs";
@@ -367,8 +368,16 @@ export async function explore({
 
     // skill 引导：列名在运行时从真实 schema 填充，不硬编码任何字段名
     const catCols = describeCategoricalColumns(loaded.grouping_columns);
-    const executorSkills = skillPkg.select("executor", goal, { fallbackIds: EXECUTOR_SKILL_IDS });
-    const sufficiencySkills = skillPkg.select("sufficiency", goal, { fallbackIds: SUFFICIENCY_SKILL_IDS });
+    const forceCandidate = skillPkg.meta.status === "validation-candidate";
+    const executorSkills = selectRuntimeSkills(skillPkg, "executor", goal, {
+      forceAll: forceCandidate, fallbackIds: EXECUTOR_SKILL_IDS,
+    });
+    const sufficiencySkills = selectRuntimeSkills(skillPkg, "sufficiency", goal, {
+      forceAll: forceCandidate, fallbackIds: SUFFICIENCY_SKILL_IDS,
+    });
+    const plannerSkills = selectRuntimeSkills(skillPkg, "planner", goal, { forceAll: forceCandidate });
+    const insightBankSkills = selectRuntimeSkills(skillPkg, "insight_bank", goal, { forceAll: forceCandidate });
+    const summarySkills = selectRuntimeSkills(skillPkg, "summary", goal, { forceAll: forceCandidate });
     const executorGuidance = skillPkg.renderSkills(executorSkills, {
       categoricalColumns: catCols,
     });
@@ -376,6 +385,9 @@ export async function explore({
       header: "COVERAGE AUDIT RULES",
       categoricalColumns: catCols,
     });
+    const plannerGuidance = skillPkg.renderSkills(plannerSkills, { header: "PLANNING GUIDANCE", categoricalColumns: catCols });
+    const insightBankGuidance = skillPkg.renderSkills(insightBankSkills, { header: "INSIGHT SELECTION GUIDANCE", categoricalColumns: catCols });
+    const summaryGuidance = skillPkg.renderSkills(summarySkills, { header: "SUMMARY GUIDANCE", categoricalColumns: catCols });
     const schemaContext = loaded.schema_context + executorGuidance;
 
     onLog(
@@ -397,6 +409,7 @@ export async function explore({
       followUpPerLayer: questionsPerLayer,
       exploratoryPerLayer: questionsPerLayer,
       firstLayerQuestions: questionsPerLayer,
+      skillGuidance: plannerGuidance,
     });
     const tools = createDataTools(pool);
 
@@ -485,6 +498,7 @@ export async function explore({
             thesis: thesis?.title ?? null,
             maxInsights,
             categoricalColumns: catCols,
+            skillGuidance: insightBankGuidance,
           }).catch((e) => {
             onLog(`insight filter failed (${e.message}); keeping all findings`);
             return null;
@@ -565,6 +579,7 @@ export async function explore({
       goal,
       nodes,
       samples: summarySamples,
+      skillGuidance: summaryGuidance,
     }).catch((e) => {
       onLog(`summary failed: ${e.message}`);
       return "";
@@ -585,7 +600,9 @@ export async function explore({
             status: skillPkg.meta.status,
             count: skillPkg.skills.length,
             hash: skillPkg.hash,
-            selected_ids: [...new Set([...executorSkills, ...sufficiencySkills].map((skill) => skill.id))],
+            selected_ids: [...new Set([
+              ...executorSkills, ...sufficiencySkills, ...plannerSkills, ...insightBankSkills, ...summarySkills,
+            ].map((skill) => skill.id))],
           }
         : null,
       usage: usage.toJSON(),

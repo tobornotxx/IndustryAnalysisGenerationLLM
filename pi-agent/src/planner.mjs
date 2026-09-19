@@ -19,7 +19,7 @@ export const Destination = {
 };
 
 // ── 第一层：初始问题（对应 INITIAL_QUESTIONS_GENERATION / Prompt 11）──
-function initialQuestionsPrompt({ topic, dbDescription, numQuestions, article }) {
+function initialQuestionsPrompt({ topic, dbDescription, numQuestions, article, skillGuidance = "" }) {
   return `You are conducting research on a goal/topic: "${topic}". The goal here is to extract previously unknown
 insights by exploring and observing the information in the database with the following description: ${dbDescription}.
 
@@ -47,7 +47,7 @@ Output a JSON object with EXACTLY this structure:
     ... (EXACTLY ${numQuestions} items)
   ]
 }
-${article ? `\nHere is more background information on the goal/topic based on the internet: "${article}".\n` : ""}`;
+${skillGuidance}${article ? `\nHere is more background information on the goal/topic based on the internet: "${article}".\n` : ""}`;
 }
 
 // ── 后续层：基于问题树的双模式生成（对应 TREE_BASED_QUESTION_GENERATION / Prompt 5b）──
@@ -61,6 +61,7 @@ function treeBasedPrompt({
   thesis,
   researchStrategy,
   focusAspects = [],
+  skillGuidance = "",
 }) {
   const thesisBlock = thesis
     ? `
@@ -143,6 +144,7 @@ For each question, specify a "destination":
 - Be decisive: generate the number of questions that is appropriate for the current state
   of exploration. Do NOT pad with weak questions just to hit a number.
 ${thesisBlock}${focusBlock}
+${skillGuidance}
 Output a JSON object with this structure:
 {
   "chain_of_thought": "first restate the original goal, then explain how each question group serves it",
@@ -192,11 +194,13 @@ export class Planner {
     followUpPerLayer = 2,
     exploratoryPerLayer = 2,
     firstLayerQuestions = 2,
+    skillGuidance = "",
   }) {
     this.generateJson = generateJson;
     this.m = followUpPerLayer;
     this.n = exploratoryPerLayer;
     this.firstLayerQuestions = firstLayerQuestions;
+    this.skillGuidance = skillGuidance;
   }
 
   /** 第一层：从 warmstart 报告（可选）生成初始问题。 */
@@ -207,6 +211,7 @@ export class Planner {
       dbDescription,
       numQuestions: maxQ,
       article: warmstartReport || null,
+      skillGuidance: this.skillGuidance,
     });
     const resp = await this.generateJson(prompt, { temperature: 0.7 });
     let questions = parseQuestions(resp?.questions ?? [], []);
@@ -240,6 +245,7 @@ export class Planner {
       thesis: thesis?.title ?? null,
       researchStrategy: thesis?.researchStrategy ?? null,
       focusAspects,
+      skillGuidance: this.skillGuidance,
     });
 
     const resp = await this.generateJson(prompt, { temperature: 0.7 });

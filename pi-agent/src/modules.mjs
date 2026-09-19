@@ -30,6 +30,7 @@ export async function filterInsights({
   thesis = null,
   maxInsights = 12,
   categoricalColumns = "the dataset's categorical columns",
+  skillGuidance = "",
 }) {
   if (!nodes.length) return {};
 
@@ -73,6 +74,7 @@ The topic is: ${topic}
 
 The database context: ${dbDescription}
 ${thesisBlock}
+${skillGuidance}
 Output a JSON dict, where each key is a node_id and the value is the insight for that node_id.
 
 # input
@@ -282,7 +284,7 @@ When sufficient=true, missing_aspects must be empty.
 // Summary —— 自一致性合并（对应 adapter._extract_summary + _summarize_self_consistent）
 // ══════════════════════════════════════════════════════════════
 
-function summaryPrompt(goal, sourceText) {
+function summaryPrompt(goal, sourceText, skillGuidance = "") {
   const goalLine = goal ? `RESEARCH GOAL: ${goal}\n\n` : "";
   return (
     "You are writing the summary of a data analysis. Below are the " +
@@ -303,6 +305,7 @@ function summaryPrompt(goal, sourceText) {
     "FORMAT:\n" +
     "- A numbered list of 3-5 key points: 1. **Title**: explanation.\n" +
     "- Each point 1-3 sentences, grounded in the findings.\n\n" +
+    skillGuidance +
     "Findings:\n" +
     sourceText.slice(0, 6000)
   );
@@ -319,6 +322,7 @@ export async function generateSummary({
   goal,
   nodes,
   samples = 3,
+  skillGuidance = "",
 }) {
   const sourceText = nodes
     .filter((n) => n.answer && !n.answer.startsWith("Execution failed"))
@@ -327,7 +331,7 @@ export async function generateSummary({
 
   if (sourceText.length < 100) return "";
 
-  const prompt = summaryPrompt(goal, sourceText);
+  const prompt = summaryPrompt(goal, sourceText, skillGuidance);
 
   if (samples <= 1) {
     return (await generateText(prompt, { temperature: 0.3 })).trim();

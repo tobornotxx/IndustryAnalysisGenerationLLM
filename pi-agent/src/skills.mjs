@@ -86,6 +86,13 @@ export function describeCategoricalColumns(names, maxN = 4) {
   return picked.length ? picked.join(", ") : FALLBACK_CATEGORICAL;
 }
 
+export function selectRuntimeSkills(pkg, stage, context, { forceAll = false, fallbackIds = [] } = {}) {
+  if (forceAll) {
+    return pkg.skills.filter((skill) => (skill.stages ?? []).includes(stage)).slice(0, 4);
+  }
+  return pkg.select(stage, context, { fallbackIds });
+}
+
 export const EXECUTOR_SKILL_IDS = [
   "decompose-trend-by-category", "decompose-imbalance-by-group", "pick-adequate-time-bucket",
 ];
