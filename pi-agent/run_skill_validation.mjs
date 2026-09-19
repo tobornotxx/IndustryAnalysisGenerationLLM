@@ -18,13 +18,23 @@ const plan = JSON.parse(readFileSync(planPath, "utf8"));
 const benchmarkDir = arg("benchmark-dir", resolve(HERE, "../run_on_benchmark/insight-bench"));
 const outRoot = arg("out-root", resolve(HERE, "../results/experiments"));
 const dryRun = has("dry-run");
+const skillFilter = new Set(arg("skills", "").split(",").filter(Boolean));
+const treatedOnly = has("treated-only");
 const configArgs = [
   "--layers", arg("layers", "3"), "--questions", arg("questions", "2"),
   "--max-questions", arg("max-questions", "6"), "--max-insights", arg("max-insights", "10"),
   "--summary-samples", arg("summary-samples", "3"), "--reasoning", arg("reasoning", "medium"),
 ];
 
-const tasks = deduplicateRunTasks((plan.plans ?? []).flatMap((skillPlan) => skillPlan.tasks).map((task) => {
+const selectedPlans = (plan.plans ?? []).filter(
+  (skillPlan) => !skillFilter.size || skillFilter.has(skillPlan.skill_id),
+);
+if (skillFilter.size && selectedPlans.length !== skillFilter.size) {
+  throw new Error("--skills contains an id not present in the validation plan");
+}
+const plannedTasks = selectedPlans.flatMap((skillPlan) => skillPlan.tasks)
+  .filter((task) => !treatedOnly || task.arm === "treated");
+const tasks = deduplicateRunTasks(plannedTasks.map((task) => {
   const runDir = buildRunDirectory({
     outRoot, experimentId: task.experiment_id, systemId: task.system_id,
     caseId: task.case_id, agentRun: task.agent_run,
