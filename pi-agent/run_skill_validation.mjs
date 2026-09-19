@@ -53,7 +53,9 @@ if (dryRun) {
 
 const counts = { success: 0, failed: 0, skipped: 0 };
 for (const task of tasks) {
-  if (task.existingStatus) { counts.skipped += 1; continue; }
+  // A failed or interrupted run is resumable in-place. Only a completed
+  // success is immutable and safe to skip.
+  if (task.existingStatus === "success") { counts.skipped += 1; continue; }
   const args = [
     "generate_insightbench.mjs", "--flag", task.case_id.replace("flag-", ""),
     "--experiment", task.experiment_id, "--system", task.system_id,
