@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { writeJsonExclusive } from "./skill-lifecycle.mjs";
 import { assertCaseSplit } from "./split-registry.mjs";
+import { NativeSkillRuntime } from "./native-skills.mjs";
 
 function nested(value, dotted) {
   return dotted.split(".").reduce((current, key) => current?.[key], value);
@@ -96,6 +97,71 @@ export function prepareValidationPlan(candidatePackage, {
     split: "source-valid",
     candidate_version: candidatePackage.meta?.version,
     experiment_tag: experimentTag || null,
+    agent_runs: agentRuns,
+    case_ids: caseIds,
+    shared_control_experiment_id: controlExperimentId,
+    plans,
+  };
+}
+
+export async function prepareDirectoryValidationPlan(skillRoot, {
+  outputDir, caseIds = ["flag-9", "flag-10", "flag-11", "flag-12"], agentRuns = 3,
+  experimentTag = "native-v1",
+} = {}) {
+  if (!Number.isInteger(agentRuns) || agentRuns < 2) throw new Error("agentRuns must be at least 2");
+  caseIds.forEach((caseId) => assertCaseSplit("insightbench-overhaul", caseId, "source-valid"));
+  const root = resolve(skillRoot);
+  const runtime = await NativeSkillRuntime.load([root]);
+  if (!runtime.skills.length) throw new Error("candidate skill directory contains no valid SKILL.md files");
+  mkdirSync(outputDir, { recursive: true });
+  const validationVersion = experimentTag || "native-v1";
+  const controlExperimentId = `skillval-${validationVersion}-shared-control`;
+  const plans = [];
+  for (const skill of runtime.skills) {
+    const candidateRoot = resolve(outputDir, `candidate-${skill.name}`);
+    if (existsSync(candidateRoot)) throw new Error(`refusing to overwrite validation skill directory: ${candidateRoot}`);
+    mkdirSync(candidateRoot, { recursive: true });
+    cpSync(dirname(skill.filePath), join(candidateRoot, skill.name), {
+      recursive: true, errorOnExist: true, force: false,
+    });
+    const experimentId = `skillval-${validationVersion}-${skill.name}`;
+    const tasks = [];
+    for (const caseId of caseIds) {
+      for (let agentRun = 1; agentRun <= agentRuns; agentRun += 1) {
+        tasks.push({
+          experiment_id: controlExperimentId,
+          skill_id: skill.name,
+          arm: "control",
+          system_id: "pi-core",
+          case_id: caseId,
+          agent_run: agentRun,
+        });
+        tasks.push({
+          experiment_id: experimentId,
+          skill_id: skill.name,
+          arm: "treated",
+          system_id: "pi-skill-candidate",
+          case_id: caseId,
+          agent_run: agentRun,
+          skill_dir: candidateRoot,
+        });
+      }
+    }
+    plans.push({
+      skill_id: skill.name,
+      experiment_id: experimentId,
+      skill_dir: candidateRoot,
+      skill_hash: (await NativeSkillRuntime.load([candidateRoot])).hash,
+      tasks,
+    });
+  }
+  return {
+    schema_version: 2,
+    skill_format: "pi-skill-directories-v1",
+    split: "source-valid",
+    source_skill_root: root,
+    source_skill_hash: runtime.hash,
+    experiment_tag: validationVersion,
     agent_runs: agentRuns,
     case_ids: caseIds,
     shared_control_experiment_id: controlExperimentId,

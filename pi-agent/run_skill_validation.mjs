@@ -75,7 +75,10 @@ for (const task of tasks) {
     "--benchmark-dir", benchmarkDir, "--out-root", outRoot,
     "--use-skills", task.arm === "treated" ? "1" : "0", ...configArgs,
   ];
-  if (task.skill_package) args.push("--skill-package", task.skill_package);
+  if (task.skill_dir) args.push("--skill-dir", task.skill_dir);
+  else if (task.skill_package) {
+    throw new Error("legacy JSON skill validation plans are not executable by the directory-based runtime");
+  }
   const result = spawnSync(process.execPath, args, { cwd: HERE, stdio: "inherit", env: process.env });
   counts[result.status === 0 ? "success" : "failed"] += 1;
 }

@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildRunDirectory, validateDataSplit } from "./src/experiment.mjs";
-import { SkillPackage } from "./src/skills.mjs";
+import { NativeSkillRuntime } from "./src/native-skills.mjs";
 import { assertCaseSplit } from "./src/split-registry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -32,7 +32,7 @@ const caseNumbers = arg("cases", arg("flags", defaultCases)).split(",").map(Numb
 const systems = arg("systems", "pi-core,pi-manual-skills").split(",").filter(Boolean);
 const repeats = Number(arg("agent-runs", 3));
 const experimentId = arg("experiment", "v41_baseline");
-const skillPackage = arg("skill-package", process.env.SKILL_PACKAGE_PATH ?? "");
+const skillDirectory = arg("skill-dir", process.env.SKILL_DIR ?? "");
 const outRoot = arg("out-root", `${REPO}/results/experiments`);
 const layers = arg("layers", "3");
 const questions = arg("questions", "2");
@@ -44,10 +44,10 @@ const reasoning = arg("reasoning", "medium");
 const useInsightBank = arg("use-insight-bank", "1");
 const goalSufficiency = arg("goal-sufficiency", "1");
 
-if (systems.includes("pi-auto-skills") && !skillPackage) {
-  throw new Error("pi-auto-skills matrix requires --skill-package");
+if (systems.includes("pi-auto-skills") && !skillDirectory) {
+  throw new Error("pi-auto-skills matrix requires --skill-dir");
 }
-if (systems.includes("pi-auto-skills")) SkillPackage.load(skillPackage, { requireFrozen: true });
+if (systems.includes("pi-auto-skills")) await NativeSkillRuntime.load([skillDirectory], { cwd: HERE });
 
 if (!Number.isInteger(repeats) || repeats < 1 || caseNumbers.some((value) => !Number.isInteger(value) || value < 1)) {
   throw new Error("cases and agent-runs must be positive integers");
@@ -111,7 +111,7 @@ for (const task of tasks) {
     "--use-insight-bank", useInsightBank, "--goal-sufficiency", goalSufficiency,
   ];
   if (task.systemId === "pi-auto-skills") {
-    args.push("--skill-package", skillPackage);
+    args.push("--skill-dir", skillDirectory);
   }
   if (maxQuestions) args.push("--max-questions", maxQuestions);
   const result = spawnSync(process.execPath, args, { cwd: HERE, stdio: "inherit", env: process.env });

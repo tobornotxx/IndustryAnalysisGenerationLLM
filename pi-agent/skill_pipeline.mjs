@@ -8,7 +8,7 @@ import { createDeepSeek, makeGenerateJson, UsageTracker } from "./src/agent.mjs"
 import { runSkillExtractionAgent } from "./src/skill-meta-agent.mjs";
 import { runSkillCreatorAgent } from "./src/skill-creator-agent.mjs";
 import {
-  buildForbiddenVocabulary, collectValidationRecords, prepareValidationPlan,
+  buildForbiddenVocabulary, collectValidationRecords, prepareDirectoryValidationPlan, prepareValidationPlan,
 } from "./src/skill-validation.mjs";
 
 const [command] = process.argv.slice(2);
@@ -111,6 +111,16 @@ if (command === "mine") {
     outputDir, caseIds, agentRuns: Number(arg("agent-runs", 3)), experimentTag: arg("tag", ""),
   });
   writeJsonExclusive(required("output"), plan);
+} else if (command === "prepare-directory-validation") {
+  const outputDir = required("output-dir");
+  const caseIds = arg("cases", "9,10,11,12").split(",").map((value) => value.startsWith("flag-") ? value : `flag-${value}`);
+  const plan = await prepareDirectoryValidationPlan(required("skill-dir"), {
+    outputDir,
+    caseIds,
+    agentRuns: Number(arg("agent-runs", 3)),
+    experimentTag: arg("tag", "native-v1"),
+  });
+  writeJsonExclusive(required("output"), plan);
 } else if (command === "collect-validation") {
   const records = collectValidationRecords(readJson(required("plan")), {
     outRoot: required("out-root"),
@@ -135,5 +145,5 @@ if (command === "mine") {
   writeJsonExclusive(required("output"), frozen);
   console.log(`frozen ${frozen.skills.length} validated skills as ${frozen.meta.version}`);
 } else {
-  throw new Error("command must be one of: mine, extract, create, vocabulary, audit, prepare-validation, collect-validation, validate, freeze");
+  throw new Error("command must be one of: mine, extract, create, vocabulary, audit, prepare-validation, prepare-directory-validation, collect-validation, validate, freeze");
 }

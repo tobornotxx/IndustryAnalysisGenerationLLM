@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildForbiddenVocabulary, collectValidationRecords, deduplicateRunTasks, prepareValidationPlan,
+  buildForbiddenVocabulary, collectValidationRecords, deduplicateRunTasks,
+  prepareDirectoryValidationPlan, prepareValidationPlan,
 } from "../src/skill-validation.mjs";
 
 const candidatePackage = {
@@ -55,6 +56,31 @@ test("validation planner creates immutable single-skill packages and paired task
   assert.throws(() => prepareValidationPlan(candidatePackage, {
     outputDir: root, caseIds: ["flag-13"], agentRuns: 3,
   }), /frozen as source-test/);
+});
+
+test("directory validation plan isolates each physical PI Skill", async () => {
+  const root = mkdtempSync(join(tmpdir(), "native-skill-validation-"));
+  const skillRoot = join(root, "skills");
+  for (const name of ["first-method", "second-method"]) {
+    const dir = join(skillRoot, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), [
+      "---", `name: ${name}`, `description: Apply ${name} when its analytical method is relevant.`, "---",
+      `Use this skill when ${name} is relevant. Do not use it otherwise.`,
+    ].join("\n"));
+  }
+  const outputDir = join(root, "validation");
+  const plan = await prepareDirectoryValidationPlan(skillRoot, {
+    outputDir, caseIds: ["flag-9"], agentRuns: 2, experimentTag: "test-native",
+  });
+  assert.equal(plan.schema_version, 2);
+  assert.equal(plan.plans.length, 2);
+  assert.equal(plan.plans[0].tasks.length, 4);
+  assert.equal(plan.plans[0].tasks.filter((task) => task.arm === "treated").length, 2);
+  assert.ok(existsSync(join(plan.plans[0].skill_dir, plan.plans[0].skill_id, "SKILL.md")));
+  await assert.rejects(prepareDirectoryValidationPlan(skillRoot, {
+    outputDir, caseIds: ["flag-9"], agentRuns: 2, experimentTag: "test-native",
+  }), /overwrite validation skill directory/);
 });
 
 test("validation collector pairs agent-run means and costs by case", () => {
