@@ -23,11 +23,7 @@ import {
   makeDeepSeekV41FlashModel,
 } from "./model-config.mjs";
 import {
-  filterInsights,
-  generateThesis,
-  refineThesis,
   evaluateSufficiency,
-  generateSummary,
 } from "./modules.mjs";
 import {
   SkillPackage,
@@ -36,6 +32,11 @@ import {
   EXECUTOR_SKILL_IDS,
   SUFFICIENCY_SKILL_IDS,
 } from "./skills.mjs";
+import {
+  ResearchState,
+  createResearchTools,
+  runResearchAgentLoop,
+} from "./research-loop.mjs";
 
 /**
  * 累计 token 用量与成本。
@@ -318,16 +319,11 @@ export async function answerQuestion({
 }
 
 /**
- * 跑完一个数据集的分层探索。
+ * Run one dataset through a single autonomous PI research loop.
  *
- * 与原 pipeline（MyDataStorm ExplorationFramework）的对应：
- *   Layer 1          → planner.generateInitialQuestions
- *   Layer 2..m       → planner.generateTreeBasedQuestions（问题树 + thesis + 缺口引导）
- *   每层内并发执行   → worker 池 + pi agent 并发
- *   每层后           → insight_bank 去重择优
- *   每 p 层          → thesis 生成/精炼
- *   min_layers 之后  → goal_sufficiency 自评，够了就早停
- *   结束             → summary（自一致性合并）
+ * Question generation and sufficiency review remain available as tools, but
+ * the agent decides when to call them and which questions to investigate.
+ * The host only owns state, evidence provenance, and finite budgets.
  */
 export async function explore({
   csvPath,
@@ -373,7 +369,8 @@ export async function explore({
     );
     await pool.warmup();
 
-    // skill 引导：列名在运行时从真实 schema 填充，不硬编码任何字段名
+    // Legacy JSON skill guidance remains temporarily available until the
+    // directory-based PI skill runtime replaces it in the next migration step.
     const catCols = describeCategoricalColumns(loaded.grouping_columns);
     const forceCandidate = skillPkg.meta.status === "validation-candidate";
     const executorSkills = selectRuntimeSkills(skillPkg, "executor", goal, {
@@ -418,185 +415,46 @@ export async function explore({
       firstLayerQuestions: questionsPerLayer,
       skillGuidance: plannerGuidance,
     });
-    const tools = createDataTools(pool);
-
-    const nodes = [];
-    let thesis = null;
-    let insightBank = {}; // node_id → 精炼后的 insight 文本
-    let missingAspects = [];
-    let stoppedEarly = false;
-    let layersRun = 0;
-
-    for (let layer = 1; layer <= maxLayers; layer++) {
-      if (maxQuestions !== null && nodes.length >= maxQuestions) break;
-      layersRun = layer;
-
-      // ── Step 1: 生成问题 ──
-      let questions;
-      if (layer === 1) {
-        questions = (
-          await planner.generateInitialQuestions({
-            topic: goal,
-            dbDescription: schemaContext,
-          })
-        ).map((q) => ({ ...q, category: "exploratory" }));
-      } else {
-        const { followUps, exploratory } = await planner.generateTreeBasedQuestions({
-          topic: goal,
-          dbDescription: schemaContext,
-          questionNodes: nodes,
-          insights: Object.values(insightBank),
-          thesis,
-          focusAspects: missingAspects,
-        });
-        questions = [
-          ...followUps.map((q) => ({ ...q, category: "follow_up" })),
-          ...exploratory.map((q) => ({ ...q, category: "exploratory" })),
-        ];
-      }
-      if (maxQuestions !== null) {
-        questions = questions.slice(0, Math.max(0, maxQuestions - nodes.length));
-      }
-      onLog(`layer ${layer}/${maxLayers}: ${questions.length} questions`);
-
-      // ── Step 2: 并发执行（pi 的 agent loop 取代手写 ReAct）──
-      const answers = await Promise.all(
-        questions.map((q) =>
-          answerQuestion({
-            question: q.question,
-            schemaContext,
-            deepseek,
-            tools,
-            usage,
-          }).catch((e) => ({
-            question: q.question,
-            answer: `Execution failed: ${e.message}`,
-            turns: 0,
-            toolCalls: [],
-          })),
-        ),
-      );
-
-      answers.forEach((a, i) => {
-        const q = questions[i];
-        nodes.push({
-          id: `q_${layer}_${String(i).padStart(2, "0")}`,
-          layer,
-          category: q.category,
-          parentIds: q.parentIds ?? [],
-          question: a.question,
-          answer: a.answer,
-          turns: a.turns,
-          toolCalls: a.toolCalls,
-        });
-      });
-
-      const avgTurns = (
-        answers.reduce((s, a) => s + a.turns, 0) / Math.max(1, answers.length)
-      ).toFixed(1);
-
-      // ── Step 3: insight bank 去重择优 ──
-      const selected = useInsightBank
-        ? await filterInsights({
-            generateJson,
-            nodes,
-            topic: goal,
-            dbDescription: schemaContext,
-            thesis: thesis?.title ?? null,
-            maxInsights,
-            categoricalColumns: catCols,
-            skillGuidance: insightBankGuidance,
-          }).catch((e) => {
-            onLog(`insight filter failed (${e.message}); keeping all findings`);
-            return null;
-          })
-        : Object.fromEntries(
-            nodes
-              .filter((n) => n.answer && !n.answer.startsWith("Execution failed"))
-              .map((n) => [n.id, n.answer]),
-          );
-      if (selected && Object.keys(selected).length) {
-        insightBank = selected;
-      } else if (Object.keys(insightBank).length) {
-        // 择优瞬时失败时，上一层已选好的 bank 是比「全部节点」好得多的退路：
-        // 它已经去过重、择过优。实测 flag-3 第 4 层择优失败，若退回全部节点，
-        // bank 会从 12 条炸到 30 条（等于 raw 口径，precision 失去意义），
-        // 且 goal-sufficiency 看到一大堆发现后当层就误判「够了」提前停。
-        onLog(
-          `insight filter yielded nothing; keeping previous layer's ` +
-            `${Object.keys(insightBank).length} selected findings`,
-        );
-      } else {
-        // 首层就失败：没有上一层可退，只能用全部节点，否则后续 planner /
-        // thesis / 自评全部失去输入。
-        insightBank = Object.fromEntries(
-          nodes
-            .filter((n) => n.answer && !n.answer.startsWith("Execution failed"))
-            .map((n) => [n.id, n.answer]),
-        );
-        onLog(`insight filter yielded nothing at first layer; falling back to all ${Object.keys(insightBank).length} findings`);
-      }
-      onLog(
-        `layer ${layer} done: avg ${avgTurns} turns/question, ` +
-          `insight bank ${Object.keys(insightBank).length}/${nodes.length}`,
-      );
-
-      // ── Step 4: goal sufficiency 自评（决定是否早停）──
-      missingAspects = [];
-      if (goalSufficiencyCheck && layer >= goalSufficiencyMinLayers && layer < maxLayers) {
-        const verdict = await evaluateSufficiency({
-          generateJson,
-          goal,
-          insights: Object.values(insightBank),
-          skillGuidance: sufficiencyGuidance,
-        });
-        if (verdict.sufficient) {
-          onLog(`goal-sufficiency: findings answer the goal — stopping early at layer ${layer}`);
-          stoppedEarly = true;
-          break;
-        }
-        missingAspects = verdict.missingAspects;
-        onLog(`goal-sufficiency: not yet — ${missingAspects.length} focus aspect(s)`);
-      }
-
-      // ── Step 5: thesis 生成/精炼 ──
-      if (layer % thesisInterval === 0) {
-        const insights = Object.values(insightBank);
-        thesis = thesis
-          ? await refineThesis({
-              generateJson,
-              topic: goal,
-              dbDescription: schemaContext,
-              currentThesis: thesis,
-              insights,
-            }).catch(() => thesis)
-          : await generateThesis({
-              generateJson,
-              topic: goal,
-              dbDescription: schemaContext,
-              insights,
-            }).catch(() => null);
-        if (thesis) onLog(`thesis: ${thesis.title}`);
-      }
-    }
-
-    // ── 最终 summary（自一致性合并）──
-    const summary = await generateSummary({
-      generateText,
-      goal,
-      nodes,
-      samples: summarySamples,
-      skillGuidance: summaryGuidance,
-    }).catch((e) => {
-      onLog(`summary failed: ${e.message}`);
-      return "";
+    planner.dbDescription = schemaContext;
+    const questionBudget = maxQuestions ?? Math.max(1, maxLayers * questionsPerLayer);
+    const state = new ResearchState({ goal, maxQuestions: questionBudget });
+    const tools = createResearchTools({
+      state,
+      planner,
+      pool,
+      evaluateSufficiency: ({ goal: reviewGoal, insights }) => evaluateSufficiency({
+        generateJson,
+        goal: reviewGoal,
+        insights,
+        skillGuidance: sufficiencyGuidance,
+      }),
     });
-    onLog(`summary: ${summary.length} chars`);
+    const loop = await runResearchAgentLoop({
+      goal,
+      schemaContext,
+      maxQuestions: questionBudget,
+      maxTurns: Math.max(12, questionBudget * 6),
+      deepseek,
+      usage,
+      tools,
+      state,
+      systemPromptExtension: [plannerGuidance, insightBankGuidance, summaryGuidance].join(""),
+      onLog,
+    });
+    const nodes = state.nodes.map((node) => ({
+      ...node,
+      turns: 0,
+    }));
+    const insightBank = Object.fromEntries(state.findings.map((node) => [node.id, node.answer]));
+    const layersRun = nodes.length ? Math.max(...nodes.map((node) => node.layer)) : 0;
+    const stoppedEarly = loop.submitted && state.remainingQuestions > 0;
+    const summary = loop.summary;
+    onLog(`summary: ${summary.length} chars; submitted=${loop.submitted}`);
 
     return {
       nodes,
       insightBank,
-      thesis,
+      thesis: null,
       summary,
       schemaContext,
       layersRun,
