@@ -348,7 +348,7 @@ def _score_pair_monte_carlo(client: OpenAI, model: str, answer: str, gt_answer: 
         except Exception:
             continue
     if not ratings:
-        return 0.0
+        raise RuntimeError("all Monte Carlo judge calls failed or returned no rating")
     return sum(ratings) / len(ratings) / 10.0
 
 
@@ -373,11 +373,11 @@ def _resolve_score_func(client: OpenAI, model: str):
     global _logprobs_supported
     with _DETECT_LOCK:
         if _logprobs_supported is None:
-            try:
-                _logprobs_supported = _detect_logprobs(client, model)
-            except Exception:
-                logger.warning("Scorer: logprobs detection failed, using Monte Carlo")
-                _logprobs_supported = False
+            # _detect_logprobs returns False only for a confirmed unsupported
+            # parameter. Authentication and transport errors must abort scoring;
+            # treating them as a zero-valued Monte Carlo result corrupts every
+            # downstream comparison.
+            _logprobs_supported = _detect_logprobs(client, model)
     return _score_pair_logprobs if _logprobs_supported else _score_pair_monte_carlo
 
 
