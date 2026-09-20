@@ -6,6 +6,7 @@ import {
 } from "./src/skill-lifecycle.mjs";
 import { createDeepSeek, makeGenerateJson, UsageTracker } from "./src/agent.mjs";
 import { runSkillExtractionAgent } from "./src/skill-meta-agent.mjs";
+import { runSkillCreatorAgent } from "./src/skill-creator-agent.mjs";
 import {
   buildForbiddenVocabulary, collectValidationRecords, prepareValidationPlan,
 } from "./src/skill-validation.mjs";
@@ -64,6 +65,24 @@ if (command === "mine") {
   };
   writeJsonExclusive(required("output"), pkg);
   console.log(`extracted ${skills.length} generalized candidate skills`);
+} else if (command === "create") {
+  if (!has("allow-api")) {
+    throw new Error("create invokes the configured model; pass --allow-api only after experiment approval");
+  }
+  const corpus = readJson(required("corpus"));
+  if (corpus.split !== "source-train") throw new Error("corpus must be source-train");
+  const usage = new UsageTracker();
+  const deepseek = createDeepSeek({
+    model: arg("model", "deepseek-flash"), reasoning: arg("reasoning", "medium"),
+  });
+  const result = await runSkillCreatorAgent({
+    episodes: corpus.episodes ?? [],
+    deepseek,
+    usage,
+    outputDir: required("output-dir"),
+    maxTurns: Number(arg("max-turns", 20)),
+  });
+  console.log(JSON.stringify({ ...result, usage: usage.toJSON() }, null, 2));
 } else if (command === "audit") {
   const pkg = readJson(required("package"));
   const forbiddenPath = required("forbidden-terms");
@@ -116,5 +135,5 @@ if (command === "mine") {
   writeJsonExclusive(required("output"), frozen);
   console.log(`frozen ${frozen.skills.length} validated skills as ${frozen.meta.version}`);
 } else {
-  throw new Error("command must be one of: mine, extract, vocabulary, audit, prepare-validation, collect-validation, validate, freeze");
+  throw new Error("command must be one of: mine, extract, create, vocabulary, audit, prepare-validation, collect-validation, validate, freeze");
 }
