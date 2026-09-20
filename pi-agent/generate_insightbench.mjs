@@ -56,7 +56,9 @@ if ((systemId === "pi-core") === useSkills) {
   throw new Error(`system ${systemId} is inconsistent with use-skills=${useSkills ? 1 : 0}`);
 }
 if (useSkills && !skillDirectories.length) throw new Error(`${systemId} requires --skill-dir`);
-if (useSkills) await NativeSkillRuntime.load(skillDirectories, { cwd: HERE });
+if (useSkills) await NativeSkillRuntime.load(skillDirectories, {
+  cwd: HERE, requireFrozen: systemId === "pi-auto-skills",
+});
 
 if (![caseNumber, layers, questions, poolSize, maxInsights, summarySamples, agentRun]
   .concat(maxQuestions === null ? [] : [maxQuestions]).every(Number.isFinite)) {
@@ -109,6 +111,7 @@ try {
     workerScript: fileURLToPath(new URL("./python/worker.py", import.meta.url)),
     useSkills, useInsightBank, goalSufficiencyCheck, maxInsights, summarySamples,
     skillDirectories: useSkills ? skillDirectories : [],
+    requireFrozenSkills: systemId === "pi-auto-skills",
     onLog: (message) => console.log("  ·", message),
   });
   const raw = result.nodes

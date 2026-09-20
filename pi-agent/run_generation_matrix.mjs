@@ -47,7 +47,9 @@ const goalSufficiency = arg("goal-sufficiency", "1");
 if (systems.includes("pi-auto-skills") && !skillDirectory) {
   throw new Error("pi-auto-skills matrix requires --skill-dir");
 }
-if (systems.includes("pi-auto-skills")) await NativeSkillRuntime.load([skillDirectory], { cwd: HERE });
+if (systems.includes("pi-auto-skills")) {
+  await NativeSkillRuntime.load([skillDirectory], { cwd: HERE, requireFrozen: true });
+}
 
 if (!Number.isInteger(repeats) || repeats < 1 || caseNumbers.some((value) => !Number.isInteger(value) || value < 1)) {
   throw new Error("cases and agent-runs must be positive integers");

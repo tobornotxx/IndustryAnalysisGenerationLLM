@@ -28,12 +28,30 @@ function walkFiles(root, output = []) {
   return output;
 }
 
+function discoverSkillDirs(root, output = []) {
+  if (!existsSync(root) || !statSync(root).isDirectory()) return output;
+  const entries = readdirSync(root, { withFileTypes: true });
+  if (entries.some((entry) => entry.isFile() && entry.name === "SKILL.md")) {
+    output.push(root);
+    return output;
+  }
+  for (const entry of entries.filter((item) => item.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.name.startsWith(".") && entry.name !== "node_modules") {
+      discoverSkillDirs(resolve(root, entry.name), output);
+    }
+  }
+  return output;
+}
+
 export function hashSkillDirectories(directories) {
   const hash = createHash("sha256");
-  for (const root of [...directories].map((path) => resolve(path)).sort()) {
-    hash.update(`root:${root}\n`);
-    for (const file of walkFiles(root)) {
-      hash.update(`file:${relative(root, file).replaceAll("\\", "/")}\n`);
+  const skillDirs = [...new Set(
+    [...directories].flatMap((path) => discoverSkillDirs(resolve(path))),
+  )].sort((left, right) => left.localeCompare(right));
+  for (const skillDir of skillDirs) {
+    hash.update(`skill:${skillDir.split(/[\\/]/).pop()}\n`);
+    for (const file of walkFiles(skillDir)) {
+      hash.update(`file:${relative(skillDir, file).replaceAll("\\", "/")}\n`);
       hash.update(readFileSync(file));
     }
   }
@@ -51,7 +69,7 @@ export class NativeSkillRuntime {
     this.hash = hashSkillDirectories(directories);
   }
 
-  static async load(directories, { cwd = process.cwd() } = {}) {
+  static async load(directories, { cwd = process.cwd(), requireFrozen = false } = {}) {
     const roots = [...new Set((directories ?? []).map((path) => resolve(cwd, path)))];
     if (!roots.length) return new NativeSkillRuntime({ directories: [], skills: [], diagnostics: [] });
     const env = new NodeExecutionEnv({ cwd });
@@ -63,7 +81,24 @@ export class NativeSkillRuntime {
       .map((skill) => skill.name)
       .filter((name, index, names) => names.indexOf(name) !== index);
     if (duplicateNames.length) throw new Error(`duplicate skill name(s): ${[...new Set(duplicateNames)].join(", ")}`);
-    return new NativeSkillRuntime({ directories: roots, skills: loaded.skills, diagnostics: loaded.diagnostics });
+    const runtime = new NativeSkillRuntime({ directories: roots, skills: loaded.skills, diagnostics: loaded.diagnostics });
+    if (requireFrozen) {
+      if (roots.length !== 1) throw new Error("a frozen skill set must be loaded from exactly one root directory");
+      const manifestPath = resolve(roots[0], "skill-set-manifest.json");
+      if (!existsSync(manifestPath)) throw new Error(`frozen skill manifest is missing: ${manifestPath}`);
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      if (manifest.status !== "frozen-validated" || manifest.frozen !== true) {
+        throw new Error("skill-set manifest is not frozen and validated");
+      }
+      if (manifest.content_hash !== runtime.hash) throw new Error("frozen skill content hash does not match");
+      const expectedNames = [...(manifest.skills ?? [])].sort();
+      const actualNames = runtime.skills.map((skill) => skill.name).sort();
+      if (JSON.stringify(expectedNames) !== JSON.stringify(actualNames)) {
+        throw new Error("frozen skill manifest names do not match loaded skills");
+      }
+      runtime.frozenManifest = manifest;
+    }
+    return runtime;
   }
 
   get catalogPrompt() {

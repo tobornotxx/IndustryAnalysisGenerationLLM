@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildForbiddenVocabulary, collectValidationRecords, deduplicateRunTasks,
+  buildForbiddenVocabulary, collectValidationRecords, deduplicateRunTasks, freezeDirectorySkillSet,
   prepareDirectoryValidationPlan, prepareValidationPlan,
 } from "../src/skill-validation.mjs";
+import { NativeSkillRuntime } from "../src/native-skills.mjs";
 
 const candidatePackage = {
   meta: { version: "auto-candidates-v1", produced_by: "pi-skill-extraction-agent", frozen: false },
@@ -81,6 +82,30 @@ test("directory validation plan isolates each physical PI Skill", async () => {
   await assert.rejects(prepareDirectoryValidationPlan(skillRoot, {
     outputDir, caseIds: ["flag-9"], agentRuns: 2, experimentTag: "test-native",
   }), /overwrite validation skill directory/);
+});
+
+test("directory freeze includes only validated Skills and detects later tampering", async () => {
+  const root = mkdtempSync(join(tmpdir(), "native-skill-freeze-"));
+  const skillRoot = join(root, "skills");
+  for (const name of ["accepted-method", "rejected-method"]) {
+    const dir = join(skillRoot, name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), [
+      "---", `name: ${name}`, `description: Apply ${name} when relevant.`, "---",
+      `Use this skill when ${name} applies. Do not use it otherwise.`,
+    ].join("\n"));
+  }
+  const frozenRoot = join(root, "frozen");
+  const manifest = await freezeDirectorySkillSet(skillRoot, {
+    "accepted-method": { passed: true, mean_delta: 0.1 },
+    "rejected-method": { passed: false, mean_delta: -0.1 },
+  }, { outputDir: frozenRoot, version: "test-v1" });
+  assert.deepEqual(manifest.skills, ["accepted-method"]);
+  const frozen = await NativeSkillRuntime.load([frozenRoot], { requireFrozen: true });
+  assert.deepEqual(frozen.skills.map((skill) => skill.name), ["accepted-method"]);
+  const frozenSkillPath = join(frozenRoot, "accepted-method", "SKILL.md");
+  writeFileSync(frozenSkillPath, `${readFileSync(frozenSkillPath, "utf8")}\nTampered.\n`, "utf8");
+  await assert.rejects(NativeSkillRuntime.load([frozenRoot], { requireFrozen: true }), /content hash/);
 });
 
 test("validation collector pairs agent-run means and costs by case", () => {

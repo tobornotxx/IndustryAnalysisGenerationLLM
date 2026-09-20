@@ -72,3 +72,9 @@ test("executed skill scripts are attached to question evidence", async (t) => {
   assert.equal(runtime.executions.length, 1);
   assert.match(state.nodes[0].evidence[0].tool, /run_skill_python:explain-shift/);
 });
+
+test("requireFrozen rejects an ordinary candidate skill directory", async (t) => {
+  const root = makeSkillRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  await assert.rejects(NativeSkillRuntime.load([root], { requireFrozen: true }), /manifest is missing/);
+});

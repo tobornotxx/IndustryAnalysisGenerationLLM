@@ -8,7 +8,8 @@ import { createDeepSeek, makeGenerateJson, UsageTracker } from "./src/agent.mjs"
 import { runSkillExtractionAgent } from "./src/skill-meta-agent.mjs";
 import { runSkillCreatorAgent } from "./src/skill-creator-agent.mjs";
 import {
-  buildForbiddenVocabulary, collectValidationRecords, prepareDirectoryValidationPlan, prepareValidationPlan,
+  buildForbiddenVocabulary, collectValidationRecords, freezeDirectorySkillSet,
+  prepareDirectoryValidationPlan, prepareValidationPlan,
 } from "./src/skill-validation.mjs";
 
 const [command] = process.argv.slice(2);
@@ -144,6 +145,13 @@ if (command === "mine") {
   });
   writeJsonExclusive(required("output"), frozen);
   console.log(`frozen ${frozen.skills.length} validated skills as ${frozen.meta.version}`);
+} else if (command === "freeze-directory") {
+  const manifest = await freezeDirectorySkillSet(
+    required("skill-dir"),
+    readJson(required("validations")),
+    { outputDir: required("output-dir"), version: required("version") },
+  );
+  console.log(JSON.stringify(manifest, null, 2));
 } else {
-  throw new Error("command must be one of: mine, extract, create, vocabulary, audit, prepare-validation, prepare-directory-validation, collect-validation, validate, freeze");
+  throw new Error("command must be one of: mine, extract, create, vocabulary, audit, prepare-validation, prepare-directory-validation, collect-validation, validate, freeze, freeze-directory");
 }

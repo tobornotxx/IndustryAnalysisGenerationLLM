@@ -352,11 +352,8 @@ export async function explore({
   if (skillPackagePath) {
     throw new Error("JSON skill packages are no longer a runtime format; pass skillDirectories with SKILL.md folders");
   }
-  if (requireFrozenSkills) {
-    throw new Error("requireFrozenSkills applies to the retired JSON skill-package runtime");
-  }
   const skillRuntime = useSkills
-    ? await NativeSkillRuntime.load(skillDirectories)
+    ? await NativeSkillRuntime.load(skillDirectories, { requireFrozen: requireFrozenSkills })
     : await NativeSkillRuntime.load([]);
   if (useSkills && !skillRuntime.skills.length) {
     throw new Error("useSkills=true requires at least one valid SKILL.md in skillDirectories");

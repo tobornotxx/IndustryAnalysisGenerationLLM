@@ -1,4 +1,7 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import {
+  cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync,
+} from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { writeJsonExclusive } from "./skill-lifecycle.mjs";
 import { assertCaseSplit } from "./split-registry.mjs";
@@ -167,6 +170,50 @@ export async function prepareDirectoryValidationPlan(skillRoot, {
     shared_control_experiment_id: controlExperimentId,
     plans,
   };
+}
+
+export async function freezeDirectorySkillSet(skillRoot, validations, {
+  outputDir, version,
+} = {}) {
+  if (!outputDir || !version) throw new Error("freeze requires outputDir and version");
+  const sourceRoot = resolve(skillRoot);
+  const targetRoot = resolve(outputDir);
+  if (existsSync(targetRoot)) throw new Error(`refusing to overwrite frozen skill directory: ${targetRoot}`);
+  const source = await NativeSkillRuntime.load([sourceRoot]);
+  const accepted = source.skills.filter((skill) => validations?.[skill.name]?.passed === true);
+  if (!accepted.length) throw new Error("no physical Skill passed validation");
+  const staging = `${targetRoot}.staging-${randomUUID()}`;
+  mkdirSync(staging, { recursive: true });
+  try {
+    for (const skill of accepted) {
+      cpSync(dirname(skill.filePath), join(staging, skill.name), {
+        recursive: true, errorOnExist: true, force: false,
+      });
+    }
+    const staged = await NativeSkillRuntime.load([staging]);
+    const selectedValidations = Object.fromEntries(
+      accepted.map((skill) => [skill.name, validations[skill.name]]),
+    );
+    const manifest = {
+      schema_version: 1,
+      version,
+      status: "frozen-validated",
+      frozen: true,
+      produced_by: "pi-skill-creator-agent",
+      source_skill_root: sourceRoot,
+      source_skill_hash: source.hash,
+      skills: accepted.map((skill) => skill.name).sort(),
+      validations: selectedValidations,
+      content_hash: staged.hash,
+    };
+    writeFileSync(join(staging, "skill-set-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    await NativeSkillRuntime.load([staging], { requireFrozen: true });
+    renameSync(staging, targetRoot);
+    return manifest;
+  } catch (error) {
+    rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function scoreValues(runDir, scorerId, metric) {
