@@ -36,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--judge-runs", type=int, default=3)
     parser.add_argument("--scorer-id", default=DEFAULT_SCORER_ID)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--keep-going",
+        action="store_true",
+        help="Continue after a failed judge process (default: stop after the first failure).",
+    )
     return parser
 
 
@@ -49,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         ], ensure_ascii=False, indent=2))
         return 0
     counts = {"success": 0, "failed": 0, "skipped": 0}
-    for task in tasks:
+    for task_index, task in enumerate(tasks):
         if task["existing"]:
             counts["skipped"] += 1
             continue
@@ -76,6 +81,11 @@ def main(argv: list[str] | None = None) -> int:
                     "stderr": result.stderr[-4000:],
                 })
             print(result.stderr.strip(), file=sys.stderr)
+            if not args.keep_going:
+                counts["not_run"] = sum(
+                    not remaining["existing"] for remaining in tasks[task_index + 1:]
+                )
+                break
     print(json.dumps(counts, indent=2))
     return 1 if counts["failed"] else 0
 

@@ -1,0 +1,89 @@
+{
+  "schema_version": 2,
+  "protocol_id": "pi-native-skill-transfer-v2",
+  "status": "frozen-before-successful-v2-scoring-or-validation-runs",
+  "hypothesis": "A general PI agent that can autonomously discover and invoke automatically created data-analysis Skills improves held-out insight quality over the identical agent without a Skill directory.",
+  "architecture": {
+    "runtime": "pi-autonomous-research-loop-v1",
+    "control": "pi-core",
+    "treatment": "pi-auto-skills",
+    "shared_loop": "Both arms use the same question proposal, evidence collection, validation, sufficiency review, and submission loop.",
+    "only_treatment_difference": "The treatment receives a frozen physical Skill directory; the control receives no Skill directory.",
+    "skill_activation": "The runtime exposes only the Skill catalog initially. The agent decides whether to call read_skill and whether to execute an allowed Skill script.",
+    "forbidden_mechanisms": [
+      "forced Skill body injection",
+      "stage-selected Skill injection",
+      "hard-coded Skill workflow branches",
+      "held-out case literals in Skill runtime files"
+    ]
+  },
+  "generation": {
+    "model": "deepseek-flash",
+    "reasoning": "medium",
+    "thinking_mode": true,
+    "agent_runs_per_case": 3,
+    "shared_limits": {
+      "max_questions": 6,
+      "goal_sufficiency_check": true
+    }
+  },
+  "skill_creation": {
+    "creator": "standalone PI Agent process",
+    "creator_model": "deepseek-flash",
+    "input": "score-bound source-train episodes and trajectories only",
+    "output": "physical Skill directories containing SKILL.md plus optional scripts, tests, assets, and references",
+    "requirements": [
+      "exact inspected-episode provenance",
+      "atomic output publication",
+      "executable Skills include an executable test asset",
+      "candidate Skills pass structural and training-literal leakage audit"
+    ]
+  },
+  "scoring": {
+    "scorer_id": "local-deepseek-v41-thinking-v2",
+    "judge_model": "deepseek-flash",
+    "thinking_mode": true,
+    "judge_runs_per_prediction": 1,
+    "semantic_metrics": ["recall", "precision", "f1"],
+    "secondary_metrics": ["deterministic", "cost_usd", "token_usage"],
+    "integrity": ["prediction_sha256", "trajectory_sha256", "positive_judge_call_count"]
+  },
+  "stages": {
+    "source-train": {
+      "benchmark_id": "insightbench-overhaul",
+      "case_ids": ["flag-1", "flag-2", "flag-3", "flag-4", "flag-5", "flag-6", "flag-7", "flag-8"],
+      "systems": ["pi-core"],
+      "agent_runs_per_case": 3,
+      "purpose": "Build the creator corpus from existing historical PI trajectories after exact per-prediction v2 rescoring. These trajectories are extraction evidence, not runtime-comparison observations."
+    },
+    "source-valid": {
+      "benchmark_id": "insightbench-overhaul",
+      "case_ids": ["flag-9", "flag-10", "flag-11", "flag-12"],
+      "systems": ["pi-core", "pi-skill-candidate"],
+      "agent_runs_per_case": 3,
+      "purpose": "Validate physical candidate Skill directories with the autonomous runtime, then freeze only accepted Skills."
+    },
+    "source-test": {
+      "benchmark_id": "insightbench-overhaul",
+      "case_ids": ["flag-13", "flag-14", "flag-15", "flag-16", "flag-17", "flag-18", "flag-19", "flag-20", "flag-21", "flag-22", "flag-23", "flag-24", "flag-25", "flag-26", "flag-27", "flag-28", "flag-29", "flag-30"],
+      "systems": ["pi-core", "pi-auto-skills"],
+      "agent_runs_per_case": 3,
+      "purpose": "Primary held-out source-domain comparison; no protocol, prompt, budget, or Skill changes afterward."
+    },
+    "target-test": {
+      "benchmark_id": "insighteval-official",
+      "case_ids": ["insighteval:1-100"],
+      "systems": ["pi-core", "pi-auto-skills"],
+      "agent_runs_per_case": 3,
+      "purpose": "Cross-benchmark transfer after source-test, without tuning from target-test results."
+    }
+  },
+  "required_order": ["source-train", "source-valid", "source-test", "target-test"],
+  "reporting": {
+    "primary_estimand": "intention-to-treat paired difference between pi-auto-skills and pi-core",
+    "activation_diagnostics": ["skill_read_rate", "skill_script_execution_rate", "paired_delta_when_read"],
+    "aggregation": "Per-system mean and standard deviation, paired case deltas, bootstrap confidence intervals, run-level variance, and cost-normalized quality.",
+    "published_baselines": ["datastorm-official-published", "agentpoirot-official-published"],
+    "claim_boundary": "Published baselines are contextual. The matched causal comparison is pi-core versus pi-auto-skills under the same autonomous loop and budget."
+  }
+}
