@@ -15,6 +15,20 @@ DEPRECATED_ALIASES = {
 }
 
 
+def find_legacy_config(start: Path) -> Path | None:
+    """Find a sibling MyDataStorm config without assuming checkout depth.
+
+    Git worktrees add an extra ``.worktrees/<name>`` segment, so indexing a
+    fixed parent silently points at a nonexistent credential file.
+    """
+    origin = start.resolve()
+    for parent in (origin, *origin.parents):
+        candidate = parent / "MyDataStorm" / "datastorm" / "llm_config.json"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def canonicalize_model_name(model: str) -> str:
     return DEPRECATED_ALIASES.get(model, model)
 

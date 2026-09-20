@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from run_on_benchmark.scorer_config import load_scorer_config
+from run_on_benchmark.scorer_config import find_legacy_config, load_scorer_config
 
 
 class ScorerConfigTests(unittest.TestCase):
@@ -34,6 +34,16 @@ class ScorerConfigTests(unittest.TestCase):
     def test_invalid_thinking_mode_is_rejected(self):
         with self.assertRaises(ValueError):
             load_scorer_config(env={"SCORER_THINKING": "sometimes"})
+
+    def test_legacy_config_discovery_survives_git_worktree_depth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            config = workspace / "MyDataStorm" / "datastorm" / "llm_config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text("{}", encoding="utf-8")
+            worktree_module = workspace / ".worktrees" / "industry" / "run_on_benchmark"
+            worktree_module.mkdir(parents=True)
+            self.assertEqual(find_legacy_config(worktree_module), config)
 
 
 if __name__ == "__main__":

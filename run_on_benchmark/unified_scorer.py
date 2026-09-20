@@ -19,9 +19,9 @@ from typing import Any
 import numpy as np
 from openai import OpenAI
 try:  # package import and legacy ``sys.path + import unified_scorer`` both work
-    from .scorer_config import load_scorer_config
+    from .scorer_config import find_legacy_config, load_scorer_config
 except ImportError:  # pragma: no cover - exercised by pi-agent's subprocess entrypoint
-    from scorer_config import load_scorer_config
+    from scorer_config import find_legacy_config, load_scorer_config
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 _LEGACY_CFG_PATH = (
-    Path(__file__).resolve().parents[2] / "MyDataStorm" / "datastorm" / "llm_config.json"
+    Path(os.environ["MYDATASTORM_LLM_CONFIG"]).resolve()
+    if os.environ.get("MYDATASTORM_LLM_CONFIG")
+    else find_legacy_config(Path(__file__).parent)
 )
 
 
@@ -147,6 +149,11 @@ def reset_usage_stats() -> None:
 
 
 def _create_client() -> OpenAI:
+    if not _SCORER_API_KEY:
+        raise RuntimeError(
+            "scorer API key is missing; set SCORER_API_KEY/DEEPSEEK_API_KEY or "
+            "MYDATASTORM_LLM_CONFIG"
+        )
     kwargs: dict[str, str] = {"api_key": _SCORER_API_KEY}
     if _SCORER_API_BASE:
         kwargs["base_url"] = _SCORER_API_BASE
