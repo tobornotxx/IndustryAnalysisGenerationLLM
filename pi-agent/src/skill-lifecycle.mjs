@@ -24,6 +24,10 @@ function mean(values) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function meanOrNull(values) {
+  return values.length ? mean(values) : null;
+}
+
 function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
@@ -333,6 +337,25 @@ export function validateAblations(records, {
       n_cases: values.length,
       per_case: cases,
       mean_delta: deltas.length ? mean(deltas) : null,
+      activation: {
+        read_rate: meanOrNull(
+          rows.flatMap((row) => numericValues(row.treated_skill_read)),
+        ),
+        execution_rate: meanOrNull(
+          rows.flatMap((row) => numericValues(row.treated_skill_executed)),
+        ),
+        paired_delta_when_read: (() => {
+          const activatedDeltas = rows.flatMap((row) => {
+            const treated = numericValues(row.treated);
+            const control = numericValues(row.control);
+            const reads = numericValues(row.treated_skill_read);
+            return treated.flatMap((value, index) => (
+              reads[index] === 1 && Number.isFinite(control[index]) ? [value - control[index]] : []
+            ));
+          });
+          return activatedDeltas.length ? mean(activatedDeltas) : null;
+        })(),
+      },
     };
   }
   return results;

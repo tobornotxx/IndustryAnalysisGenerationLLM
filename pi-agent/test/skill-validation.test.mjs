@@ -117,7 +117,13 @@ test("validation collector pairs agent-run means and costs by case", () => {
   for (const task of plan.plans[0].tasks) {
     const run = join(root, "runs", task.experiment_id, task.system_id, task.case_id, `agent_run_${task.agent_run}`);
     mkdirSync(join(run, "scores", "judge"), { recursive: true });
-    writeFileSync(join(run, "manifest.json"), JSON.stringify({ status: "success" }));
+    writeFileSync(join(run, "manifest.json"), JSON.stringify({
+      status: "success",
+      skill_package: task.arm === "treated" ? {
+        read_names: task.agent_run === 1 ? [task.skill_id] : [],
+        executions: task.agent_run === 1 ? [{ skill_name: task.skill_id }] : [],
+      } : null,
+    }));
     writeFileSync(join(run, "usage.json"), JSON.stringify({ cost_usd: task.arm === "treated" ? 1.1 : 1 }));
     writeFileSync(join(run, "scores", "judge", "judge_run_1.json"), JSON.stringify({
       semantic: { primary: { f1: task.arm === "treated" ? 0.6 : 0.5 } },
@@ -128,4 +134,6 @@ test("validation collector pairs agent-run means and costs by case", () => {
   assert.deepEqual(records[0].control, [0.5, 0.5]);
   assert.deepEqual(records[0].treated, [0.6, 0.6]);
   assert.deepEqual(records[0].treated_cost, [1.1, 1.1]);
+  assert.deepEqual(records[0].treated_skill_read, [1, 0]);
+  assert.deepEqual(records[0].treated_skill_executed, [1, 0]);
 });

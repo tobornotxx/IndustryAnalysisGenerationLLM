@@ -115,6 +115,21 @@ test("validation requires positive gains on multiple frozen validation cases", (
   assert.equal(result["compare-subgroups"].passed, true);
 });
 
+test("validation reports autonomous Skill activation separately from score effects", () => {
+  const result = validateAblations([{
+    skill_id: "method", benchmark_id: "insightbench-overhaul", case_id: "flag-9", split: "source-valid",
+    treated: [0.7, 0.4], control: [0.5, 0.5], treated_cost: [1, 1], control_cost: [1, 1],
+    treated_skill_read: [1, 0], treated_skill_executed: [0, 0],
+  }, {
+    skill_id: "method", benchmark_id: "insightbench-overhaul", case_id: "flag-10", split: "source-valid",
+    treated: [0.8, 0.6], control: [0.6, 0.6], treated_cost: [1, 1], control_cost: [1, 1],
+    treated_skill_read: [1, 1], treated_skill_executed: [1, 0],
+  }], { minCases: 2, minRunsPerArm: 2 });
+  assert.equal(result.method.activation.read_rate, 0.75);
+  assert.equal(result.method.activation.execution_rate, 0.25);
+  assert.ok(Math.abs(result.method.activation.paired_delta_when_read - (0.2 + 0.2 + 0) / 3) < 1e-12);
+});
+
 test("freeze gate requires audit and validation then content-addresses package", () => {
   const skill = candidate();
   const pkg = { meta: { frozen: false }, skills: [skill], episodes: [], config: {} };

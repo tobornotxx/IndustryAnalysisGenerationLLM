@@ -233,15 +233,25 @@ export function collectValidationRecords(plan, {
     for (const caseId of plan.case_ids ?? []) {
       const arms = { control: [], treated: [] };
       const costs = { control: [], treated: [] };
+      const activation = { read: [], executed: [] };
       for (const task of skillPlan.tasks.filter((item) => item.case_id === caseId)) {
         const runDir = join(outRoot, task.experiment_id, task.system_id, caseId, `agent_run_${task.agent_run}`);
         const manifestPath = join(runDir, "manifest.json");
-        if (!existsSync(manifestPath) || readJson(manifestPath).status !== "success") continue;
+        if (!existsSync(manifestPath)) continue;
+        const manifest = readJson(manifestPath);
+        if (manifest.status !== "success") continue;
         const values = scoreValues(runDir, scorerId, metric);
         if (!values.length) continue;
         arms[task.arm].push(mean(values));
         const usagePath = join(runDir, "usage.json");
         costs[task.arm].push(existsSync(usagePath) ? Number(readJson(usagePath).cost_usd ?? 0) : 0);
+        if (task.arm === "treated") {
+          const runtime = manifest.skill_package ?? {};
+          activation.read.push((runtime.read_names ?? []).includes(skillPlan.skill_id) ? 1 : 0);
+          activation.executed.push((runtime.executions ?? []).some(
+            (execution) => execution.skill_name === skillPlan.skill_id,
+          ) ? 1 : 0);
+        }
       }
       records.push({
         skill_id: skillPlan.skill_id,
@@ -252,6 +262,8 @@ export function collectValidationRecords(plan, {
         treated: arms.treated,
         control_cost: costs.control,
         treated_cost: costs.treated,
+        treated_skill_read: activation.read,
+        treated_skill_executed: activation.executed,
         scorer_id: scorerId,
         metric,
       });
