@@ -37,6 +37,7 @@ class ScoreMatrixTests(unittest.TestCase):
                 ])
             self.assertEqual(exit_code, 1)
             self.assertEqual(run.call_count, 1)
+            self.assertIn("--modes", run.call_args.args[0])
             self.assertEqual(len(list(root.rglob("*.failure.json"))), 1)
 
 

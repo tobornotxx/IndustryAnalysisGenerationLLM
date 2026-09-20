@@ -25,6 +25,7 @@ def load_ground_truth(benchmark_dir: Path, case_id: str) -> dict[str, Any]:
 def score_prediction(
     *, prediction_path: Path, benchmark_dir: Path, judge_run: int,
     scorer_id: str = DEFAULT_SCORER_ID, scorer_module: ModuleType | Any | None = None,
+    modes: tuple[str, ...] = ("primary", "raw", "bank"),
 ) -> Path:
     if judge_run < 1:
         raise ValueError("judge_run must be >= 1")
@@ -36,14 +37,21 @@ def score_prediction(
     gt = load_ground_truth(benchmark_dir, case_id)
     scorer = scorer_module or importlib.import_module("run_on_benchmark.unified_scorer")
 
-    modes = {
+    available_modes = {
         "primary": prediction.get("pred_insights") or [],
         "raw": prediction.get("pred_insights_raw") or [],
         "bank": prediction.get("pred_insights_bank") or [],
     }
+    requested_modes = tuple(dict.fromkeys(modes))
+    unknown_modes = set(requested_modes) - set(available_modes)
+    if unknown_modes or not requested_modes:
+        raise ValueError(f"modes must be a non-empty subset of {tuple(available_modes)}")
+    if "primary" not in requested_modes:
+        raise ValueError("primary mode is required for the formal experiment metric")
     semantic = {}
     scored_modes: dict[str, tuple[str, dict[str, Any]]] = {}
-    for name, items in modes.items():
+    for name in requested_modes:
+        items = available_modes[name]
         if items:
             fingerprint = hashlib.sha256(
                 json.dumps(items, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -72,6 +80,7 @@ def score_prediction(
         "case_id": case_id,
         "judge_run": judge_run,
         "scorer_id": scorer_id,
+        "scored_modes": list(requested_modes),
         "scorer": scorer.get_scorer_config(),
         "semantic": semantic,
         "summary": summary_score,
@@ -89,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--benchmark-dir", type=Path, required=True)
     parser.add_argument("--judge-run", type=int, required=True)
     parser.add_argument("--scorer-id", default=DEFAULT_SCORER_ID)
+    parser.add_argument("--modes", default="primary,raw,bank")
     return parser
 
 
@@ -97,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     path = score_prediction(
         prediction_path=args.prediction, benchmark_dir=args.benchmark_dir,
         judge_run=args.judge_run, scorer_id=args.scorer_id,
+        modes=tuple(value.strip() for value in args.modes.split(",") if value.strip()),
     )
     print(path)
     return 0

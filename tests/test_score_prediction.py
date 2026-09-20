@@ -71,6 +71,25 @@ class OfflineScoreTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             score_prediction(**kwargs)
 
+    def test_primary_only_avoids_unused_ablation_scores(self):
+        path = score_prediction(
+            prediction_path=self.prediction, benchmark_dir=self.root / "benchmark",
+            judge_run=1, scorer_id="primary-only", scorer_module=FakeScorer,
+            modes=("primary",),
+        )
+        score = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(score["scored_modes"], ["primary"])
+        self.assertEqual(list(score["semantic"]), ["primary"])
+        self.assertEqual(FakeScorer.insight_calls, 1)
+
+    def test_primary_mode_is_required(self):
+        with self.assertRaisesRegex(ValueError, "primary mode is required"):
+            score_prediction(
+                prediction_path=self.prediction, benchmark_dir=self.root / "benchmark",
+                judge_run=1, scorer_id="raw-only", scorer_module=FakeScorer,
+                modes=("raw",),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

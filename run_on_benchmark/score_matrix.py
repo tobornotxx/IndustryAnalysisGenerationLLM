@@ -35,6 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--benchmark-dir", type=Path, required=True)
     parser.add_argument("--judge-runs", type=int, default=3)
     parser.add_argument("--scorer-id", default=DEFAULT_SCORER_ID)
+    parser.add_argument(
+        "--modes", default="primary,raw,bank",
+        help="Comma-separated prediction modes. Use primary for the formal Skill metric.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--keep-going",
@@ -64,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
             "--benchmark-dir", str(args.benchmark_dir),
             "--judge-run", str(task["judge_run"]),
             "--scorer-id", args.scorer_id,
+            "--modes", args.modes,
         ], check=False, capture_output=True, text=True)
         if result.returncode == 0:
             counts["success"] += 1
