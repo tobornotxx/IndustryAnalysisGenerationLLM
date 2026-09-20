@@ -22,8 +22,7 @@ const skillFilter = new Set(arg("skills", "").split(",").filter(Boolean));
 const treatedOnly = has("treated-only");
 const configArgs = [
   "--layers", arg("layers", "3"), "--questions", arg("questions", "2"),
-  "--max-questions", arg("max-questions", "6"), "--max-insights", arg("max-insights", "10"),
-  "--summary-samples", arg("summary-samples", "3"), "--reasoning", arg("reasoning", "medium"),
+  "--max-questions", arg("max-questions", "6"), "--reasoning", arg("reasoning", "medium"),
 ];
 
 const selectedPlans = (plan.plans ?? []).filter(

@@ -38,10 +38,7 @@ const layers = arg("layers", "3");
 const questions = arg("questions", "2");
 const maxQuestions = arg("max-questions", "");
 const poolSize = arg("pool", "4");
-const maxInsights = arg("max-insights", "10");
-const summarySamples = arg("summary-samples", "3");
 const reasoning = arg("reasoning", "medium");
-const useInsightBank = arg("use-insight-bank", "1");
 const goalSufficiency = arg("goal-sufficiency", "1");
 
 if (systems.includes("pi-auto-skills") && !skillDirectory) {
@@ -87,7 +84,7 @@ for (const systemId of systems) {
 if (dryRun) {
   console.log(JSON.stringify({
     experiment_id: experimentId, benchmark_kind: benchmarkKind, benchmark_dir: benchmarkDir, split,
-    config: { layers, questions, max_questions: maxQuestions || null, pool: poolSize, max_insights: maxInsights, summary_samples: summarySamples, reasoning, thinking_mode: true },
+    config: { architecture: "pi-autonomous-research-loop-v1", question_budget_rounds: layers, question_candidates_per_request: questions, max_questions: maxQuestions || null, pool: poolSize, reasoning, thinking_mode: true },
     tasks,
   }, null, 2));
   process.exit(0);
@@ -108,9 +105,8 @@ for (const task of tasks) {
     "--split", split,
     "--questions", questions, "--pool", poolSize,
     "--reasoning", reasoning,
-    "--max-insights", maxInsights, "--summary-samples", summarySamples,
     "--out-root", outRoot, "--use-skills", task.systemId === "pi-core" ? "0" : "1",
-    "--use-insight-bank", useInsightBank, "--goal-sufficiency", goalSufficiency,
+    "--goal-sufficiency", goalSufficiency,
   ];
   if (task.systemId === "pi-auto-skills") {
     args.push("--skill-dir", skillDirectory);

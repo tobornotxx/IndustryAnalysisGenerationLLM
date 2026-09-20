@@ -333,14 +333,8 @@ export async function explore({
   pythonBin,
   workerScript,
   loadMode = "isolated",
-  // ── 与原 pipeline 对齐的开关 ──
   useSkills = true,
-  useInsightBank = true,
   goalSufficiencyCheck = true,
-  goalSufficiencyMinLayers = 2,
-  thesisInterval = 1,
-  maxInsights = 12,
-  summarySamples = 3,
   skillDirectories = [],
   skillPackagePath = undefined,
   requireFrozenSkills = false,
@@ -402,6 +396,7 @@ export async function explore({
         insights,
         skillGuidance: "",
       }),
+      requireSufficiencyReview: goalSufficiencyCheck,
     });
     tools.push(...createNativeSkillTools(skillRuntime, { state, pool }));
     const loop = await runResearchAgentLoop({

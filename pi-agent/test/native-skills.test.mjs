@@ -3,7 +3,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { NativeSkillRuntime, createNativeSkillTools } from "../src/native-skills.mjs";
+import {
+  NativeSkillRuntime, auditNativeSkillDirectory, createNativeSkillTools,
+} from "../src/native-skills.mjs";
 import { ResearchState } from "../src/research-loop.mjs";
 
 function makeSkillRoot() {
@@ -77,4 +79,17 @@ test("requireFrozen rejects an ordinary candidate skill directory", async (t) =>
   const root = makeSkillRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   await assert.rejects(NativeSkillRuntime.load([root], { requireFrozen: true }), /manifest is missing/);
+});
+
+test("native directory audit catches leakage and executable Skills without tests", async (t) => {
+  const root = makeSkillRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const skill = join(root, "explain-shift");
+  writeFileSync(join(skill, "provenance.json"), JSON.stringify({
+    capability_gap: "needs decomposition", evidence_episode_ids: ["run-1"],
+  }));
+  const audit = await auditNativeSkillDirectory(root, { forbiddenTerms: ["SECRET FULL METHOD"] });
+  assert.equal(audit.passed, false);
+  assert.ok(audit.findings.some((item) => item.kind === "forbidden-training-literal"));
+  assert.ok(audit.findings.some((item) => item.kind === "executable-without-test"));
 });

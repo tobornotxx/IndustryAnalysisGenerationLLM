@@ -7,6 +7,7 @@ import {
 import { createDeepSeek, makeGenerateJson, UsageTracker } from "./src/agent.mjs";
 import { runSkillExtractionAgent } from "./src/skill-meta-agent.mjs";
 import { runSkillCreatorAgent } from "./src/skill-creator-agent.mjs";
+import { auditNativeSkillDirectory } from "./src/native-skills.mjs";
 import {
   buildForbiddenVocabulary, collectValidationRecords, freezeDirectorySkillSet,
   prepareDirectoryValidationPlan, prepareValidationPlan,
@@ -97,6 +98,19 @@ if (command === "mine") {
   }
   if (!Array.isArray(forbiddenTerms)) throw new Error("forbidden terms must be a JSON array/object or line list");
   writeJsonExclusive(required("output"), auditSkillPackage(pkg, { forbiddenTerms }));
+} else if (command === "audit-directory") {
+  const forbiddenText = readFileSync(required("forbidden-terms"), "utf8");
+  let forbiddenTerms;
+  try {
+    const parsed = JSON.parse(forbiddenText);
+    forbiddenTerms = Array.isArray(parsed) ? parsed : parsed.terms;
+  } catch {
+    forbiddenTerms = forbiddenText.split(/\r?\n/).filter(Boolean);
+  }
+  if (!Array.isArray(forbiddenTerms)) throw new Error("forbidden terms must be a JSON array/object or line list");
+  writeJsonExclusive(required("output"), await auditNativeSkillDirectory(
+    required("skill-dir"), { forbiddenTerms },
+  ));
 } else if (command === "vocabulary") {
   const caseIds = required("cases").split(",").map((value) => value.startsWith("flag-") ? value : `flag-${value}`);
   writeJsonExclusive(required("output"), {
@@ -153,5 +167,5 @@ if (command === "mine") {
   );
   console.log(JSON.stringify(manifest, null, 2));
 } else {
-  throw new Error("command must be one of: mine, extract, create, vocabulary, audit, prepare-validation, prepare-directory-validation, collect-validation, validate, freeze, freeze-directory");
+  throw new Error("command must be one of: mine, extract, create, vocabulary, audit, audit-directory, prepare-validation, prepare-directory-validation, collect-validation, validate, freeze, freeze-directory");
 }

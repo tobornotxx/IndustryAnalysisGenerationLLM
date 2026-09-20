@@ -114,7 +114,9 @@ export class ResearchState {
   }
 }
 
-export function createResearchTools({ state, planner, pool, evaluateSufficiency }) {
+export function createResearchTools({
+  state, planner, pool, evaluateSufficiency, requireSufficiencyReview = true,
+}) {
   return [
     {
       name: "inspect_research_state",
@@ -289,7 +291,9 @@ export function createResearchTools({ state, planner, pool, evaluateSufficiency 
         }
         const reviewIsCurrent = state.lastReview
           && state.lastReview.reviewed_after_question_count === state.nodes.length;
-        if (state.remainingQuestions > 0 && (!reviewIsCurrent || !state.lastReview.sufficient)) {
+        if (requireSufficiencyReview
+            && state.remainingQuestions > 0
+            && (!reviewIsCurrent || !state.lastReview.sufficient)) {
           return toolResult({
             accepted: false,
             reason: "review_progress has not confirmed sufficient evidence",

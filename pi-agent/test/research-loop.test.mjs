@@ -97,3 +97,25 @@ test("submission succeeds after a sufficient review", async () => {
   assert.equal(submitted.accepted, true);
   assert.equal(state.submission, "A exceeds B.");
 });
+
+test("review can be advisory when the experiment disables the sufficiency gate", async () => {
+  const { state } = fixtures({ sufficient: false });
+  const planner = {
+    dbDescription: "table main_table(a)",
+    async generateInitialQuestions() { return []; },
+    async generateTreeBasedQuestions() { return { followUps: [], exploratory: [] }; },
+  };
+  const pool = { async call() { return { summary: "A=1" }; } };
+  const tools = createResearchTools({
+    state, planner, pool,
+    evaluateSufficiency: async () => ({ sufficient: false, missingAspects: ["more"], reasoning: "gap" }),
+    requireSufficiencyReview: false,
+  });
+  await findTool(tools, "start_question").execute("1", {
+    question: "What is A?", category: "exploratory", parent_ids: [],
+  });
+  await findTool(tools, "run_sql").execute("2", { question_id: "q_001", sql: "select 1" });
+  await findTool(tools, "record_finding").execute("3", { question_id: "q_001", finding: "A=1" });
+  const submitted = resultJson(await findTool(tools, "submit_analysis").execute("4", { summary: "A=1" }));
+  assert.equal(submitted.accepted, true);
+});

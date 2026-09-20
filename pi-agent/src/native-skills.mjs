@@ -135,6 +135,56 @@ export class NativeSkillRuntime {
   }
 }
 
+export async function auditNativeSkillDirectory(skillRoot, { forbiddenTerms = [] } = {}) {
+  const runtime = await NativeSkillRuntime.load([skillRoot]);
+  const findings = [];
+  const terms = uniqueLower(forbiddenTerms);
+  for (const skill of runtime.skills) {
+    const skillDir = dirname(skill.filePath);
+    const provenancePath = resolve(skillDir, "provenance.json");
+    if (!existsSync(provenancePath)) {
+      findings.push({ skill_name: skill.name, kind: "missing-provenance", path: provenancePath });
+    } else {
+      try {
+        const provenance = JSON.parse(readFileSync(provenancePath, "utf8"));
+        if (!provenance.capability_gap || !(provenance.evidence_episode_ids ?? []).length) {
+          findings.push({ skill_name: skill.name, kind: "incomplete-provenance", path: provenancePath });
+        }
+      } catch (error) {
+        findings.push({ skill_name: skill.name, kind: "invalid-provenance", path: provenancePath, message: error.message });
+      }
+    }
+    const runtimeFiles = walkFiles(skillDir).filter((path) => (
+      !path.endsWith("provenance.json") && !path.includes(`${sep}tests${sep}`)
+    ));
+    for (const path of runtimeFiles) {
+      const text = readFileSync(path, "utf8").toLowerCase();
+      const hits = terms.filter((term) => text.includes(term));
+      if (hits.length) findings.push({
+        skill_name: skill.name,
+        kind: "forbidden-training-literal",
+        path,
+        terms: hits,
+      });
+    }
+    const scripts = runtimeFiles.filter((path) => path.includes(`${sep}scripts${sep}`) && path.endsWith(".py"));
+    const tests = walkFiles(resolve(skillDir, "tests")).filter((path) => path.endsWith(".py"));
+    if (scripts.length && !tests.length) {
+      findings.push({ skill_name: skill.name, kind: "executable-without-test" });
+    }
+  }
+  return {
+    passed: findings.length === 0,
+    skill_hash: runtime.hash,
+    skills: runtime.skills.map((skill) => skill.name),
+    findings,
+  };
+}
+
+function uniqueLower(values) {
+  return [...new Set((values ?? []).map(String).map((value) => value.trim().toLowerCase()).filter(Boolean))];
+}
+
 export function createNativeSkillTools(runtime, { state, pool }) {
   if (!runtime.skills.length) return [];
   return [

@@ -31,15 +31,12 @@ const questions = Number(arg("questions", 2));
 const maxQuestionsArg = arg("max-questions", "");
 const maxQuestions = maxQuestionsArg === "" ? null : Number(maxQuestionsArg);
 const poolSize = Number(arg("pool", 4));
-const maxInsights = Number(arg("max-insights", 12));
-const summarySamples = Number(arg("summary-samples", 3));
 const agentRun = Number(arg("agent-run", 1));
 const experimentId = arg("experiment", "v41_baseline");
 const split = validateDataSplit(arg(
   "split", benchmarkKind === "insighteval" ? "target-test" : "source-train",
 ));
 const useSkills = arg("use-skills", process.env.USE_SKILLS ?? "0") !== "0";
-const useInsightBank = arg("use-insight-bank", "1") !== "0";
 const goalSufficiencyCheck = arg("goal-sufficiency", "1") !== "0";
 const systemId = arg("system", useSkills ? "pi-auto-skills" : "pi-core");
 const skillDirectories = arg("skill-dir", process.env.SKILL_DIR ?? "")
@@ -60,7 +57,7 @@ if (useSkills) await NativeSkillRuntime.load(skillDirectories, {
   cwd: HERE, requireFrozen: systemId === "pi-auto-skills",
 });
 
-if (![caseNumber, layers, questions, poolSize, maxInsights, summarySamples, agentRun]
+if (![caseNumber, layers, questions, poolSize, agentRun]
   .concat(maxQuestions === null ? [] : [maxQuestions]).every(Number.isFinite)) {
   throw new Error("numeric arguments must be valid numbers");
 }
@@ -81,9 +78,10 @@ const promptFiles = [
   `${HERE}/src/research-loop.mjs`, `${HERE}/src/native-skills.mjs`,
 ];
 const config = {
-  model, reasoning, thinking_mode: true, layers, questions_per_layer: questions, pool_size: poolSize,
-  max_questions: maxQuestions, max_insights: maxInsights, summary_samples: summarySamples,
-  use_skills: useSkills, use_insight_bank: useInsightBank,
+  architecture: "pi-autonomous-research-loop-v1",
+  model, reasoning, thinking_mode: true, question_budget_rounds: layers,
+  question_candidates_per_request: questions, pool_size: poolSize,
+  max_questions: maxQuestions, use_skills: useSkills,
   goal_sufficiency_check: goalSufficiencyCheck,
 };
 const baseManifest = makeManifest({
@@ -109,7 +107,7 @@ try {
     csvPath, userCsvPath, tableName: "incidents", goal, maxLayers: layers,
     questionsPerLayer: questions, maxQuestions, poolSize, model, reasoning, pythonBin: PY,
     workerScript: fileURLToPath(new URL("./python/worker.py", import.meta.url)),
-    useSkills, useInsightBank, goalSufficiencyCheck, maxInsights, summarySamples,
+    useSkills, goalSufficiencyCheck,
     skillDirectories: useSkills ? skillDirectories : [],
     requireFrozenSkills: systemId === "pi-auto-skills",
     onLog: (message) => console.log("  ·", message),

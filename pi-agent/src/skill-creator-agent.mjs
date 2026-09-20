@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -162,6 +163,18 @@ export class SkillCreatorWorkspace {
       }
       if (!/do not|avoid|not use|limitations?/i.test(body)) {
         errors.push(`${skill.name} does not explain a boundary or non-applicable condition`);
+      }
+      const skillDir = join(this.stagingDir, skill.name);
+      const scriptDir = join(skillDir, "scripts");
+      const testDir = join(skillDir, "tests");
+      const scripts = existsSync(scriptDir)
+        ? readdirSync(scriptDir, { recursive: true }).filter((path) => String(path).endsWith(".py"))
+        : [];
+      const tests = existsSync(testDir)
+        ? readdirSync(testDir, { recursive: true }).filter((path) => String(path).endsWith(".py"))
+        : [];
+      if (scripts.length && !tests.length) {
+        errors.push(`${skill.name} includes executable scripts but no Python test asset`);
       }
     }
     return {
