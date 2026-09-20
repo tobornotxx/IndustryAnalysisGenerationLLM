@@ -8,7 +8,7 @@ import {
   sha256Files, validateDataSplit, writeJsonAtomic,
 } from "./src/experiment.mjs";
 import { assertCaseSplit, splitRegistrySha256 } from "./src/split-registry.mjs";
-import { DEFAULT_PACKAGE, SkillPackage } from "./src/skills.mjs";
+import { NativeSkillRuntime, hashSkillDirectories } from "./src/native-skills.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = process.env.REPO_ROOT ?? resolve(HERE, "..");
@@ -38,11 +38,12 @@ const experimentId = arg("experiment", "v41_baseline");
 const split = validateDataSplit(arg(
   "split", benchmarkKind === "insighteval" ? "target-test" : "source-train",
 ));
-const useSkills = arg("use-skills", process.env.USE_SKILLS ?? "1") !== "0";
+const useSkills = arg("use-skills", process.env.USE_SKILLS ?? "0") !== "0";
 const useInsightBank = arg("use-insight-bank", "1") !== "0";
 const goalSufficiencyCheck = arg("goal-sufficiency", "1") !== "0";
-const systemId = arg("system", useSkills ? "pi-manual-skills" : "pi-core");
-const skillPath = arg("skill-package", process.env.SKILL_PACKAGE_PATH ?? DEFAULT_PACKAGE);
+const systemId = arg("system", useSkills ? "pi-auto-skills" : "pi-core");
+const skillDirectories = arg("skill-dir", process.env.SKILL_DIR ?? "")
+  .split(",").map((value) => value.trim()).filter(Boolean);
 const model = arg("model", "deepseek-flash");
 const reasoning = arg("reasoning", "medium");
 const outRoot = arg("out-root", `${REPO}/results/experiments`);
@@ -54,12 +55,8 @@ if (!["pi-core", "pi-manual-skills", "pi-auto-skills", "pi-skill-candidate"].inc
 if ((systemId === "pi-core") === useSkills) {
   throw new Error(`system ${systemId} is inconsistent with use-skills=${useSkills ? 1 : 0}`);
 }
-if (["pi-auto-skills", "pi-skill-candidate"].includes(systemId) && skillPath === DEFAULT_PACKAGE) {
-  throw new Error(`${systemId} requires an explicit --skill-package artifact`);
-}
-if (useSkills) {
-  SkillPackage.load(skillPath, { requireFrozen: systemId === "pi-auto-skills" });
-}
+if (useSkills && !skillDirectories.length) throw new Error(`${systemId} requires --skill-dir`);
+if (useSkills) await NativeSkillRuntime.load(skillDirectories, { cwd: HERE });
 
 if (![caseNumber, layers, questions, poolSize, maxInsights, summarySamples, agentRun]
   .concat(maxQuestions === null ? [] : [maxQuestions]).every(Number.isFinite)) {
@@ -79,6 +76,7 @@ const repoGit = gitState(REPO);
 const benchmarkGit = gitState(BENCH);
 const promptFiles = [
   `${HERE}/src/planner.mjs`, `${HERE}/src/modules.mjs`, `${HERE}/src/agent.mjs`,
+  `${HERE}/src/research-loop.mjs`, `${HERE}/src/native-skills.mjs`,
 ];
 const config = {
   model, reasoning, thinking_mode: true, layers, questions_per_layer: questions, pool_size: poolSize,
@@ -91,7 +89,7 @@ const baseManifest = makeManifest({
   split,
   agent_run: agentRun, status: "planned", generation_model: model,
   scorer_model: null, repository: repoGit, benchmark: benchmarkGit,
-  prompt_hash: sha256Files(promptFiles), skill_hash: useSkills ? sha256Files([skillPath]) : null,
+  prompt_hash: sha256Files(promptFiles), skill_hash: useSkills ? hashSkillDirectories(skillDirectories) : null,
   split_registry_hash: splitRegistrySha256(),
   config,
 });
@@ -110,8 +108,7 @@ try {
     questionsPerLayer: questions, maxQuestions, poolSize, model, reasoning, pythonBin: PY,
     workerScript: fileURLToPath(new URL("./python/worker.py", import.meta.url)),
     useSkills, useInsightBank, goalSufficiencyCheck, maxInsights, summarySamples,
-    skillPackagePath: useSkills ? skillPath : undefined,
-    requireFrozenSkills: systemId === "pi-auto-skills",
+    skillDirectories: useSkills ? skillDirectories : [],
     onLog: (message) => console.log("  ·", message),
   });
   const raw = result.nodes

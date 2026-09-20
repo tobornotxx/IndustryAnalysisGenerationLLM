@@ -26,17 +26,11 @@ import {
   evaluateSufficiency,
 } from "./modules.mjs";
 import {
-  SkillPackage,
-  describeCategoricalColumns,
-  selectRuntimeSkills,
-  EXECUTOR_SKILL_IDS,
-  SUFFICIENCY_SKILL_IDS,
-} from "./skills.mjs";
-import {
   ResearchState,
   createResearchTools,
   runResearchAgentLoop,
 } from "./research-loop.mjs";
+import { NativeSkillRuntime, createNativeSkillTools } from "./native-skills.mjs";
 
 /**
  * 累计 token 用量与成本。
@@ -347,6 +341,7 @@ export async function explore({
   thesisInterval = 1,
   maxInsights = 12,
   summarySamples = 3,
+  skillDirectories = [],
   skillPackagePath = undefined,
   requireFrozenSkills = false,
   onLog = () => {},
@@ -354,10 +349,18 @@ export async function explore({
   const usage = new UsageTracker();
   const deepseek = createDeepSeek({ model, reasoning });
   const generateJson = makeGenerateJson({ ...deepseek, usage });
-  const generateText = makeGenerateText({ ...deepseek, usage });
-  const skillPkg = useSkills
-    ? SkillPackage.load(skillPackagePath, { requireFrozen: requireFrozenSkills })
-    : new SkillPackage(null);
+  if (skillPackagePath) {
+    throw new Error("JSON skill packages are no longer a runtime format; pass skillDirectories with SKILL.md folders");
+  }
+  if (requireFrozenSkills) {
+    throw new Error("requireFrozenSkills applies to the retired JSON skill-package runtime");
+  }
+  const skillRuntime = useSkills
+    ? await NativeSkillRuntime.load(skillDirectories)
+    : await NativeSkillRuntime.load([]);
+  if (useSkills && !skillRuntime.skills.length) {
+    throw new Error("useSkills=true requires at least one valid SKILL.md in skillDirectories");
+  }
 
   const pool = new PyWorkerPool({ python: pythonBin, workerScript, size: poolSize });
   await pool.ready();
@@ -369,42 +372,16 @@ export async function explore({
     );
     await pool.warmup();
 
-    // Legacy JSON skill guidance remains temporarily available until the
-    // directory-based PI skill runtime replaces it in the next migration step.
-    const catCols = describeCategoricalColumns(loaded.grouping_columns);
-    const forceCandidate = skillPkg.meta.status === "validation-candidate";
-    const executorSkills = selectRuntimeSkills(skillPkg, "executor", goal, {
-      forceAll: forceCandidate, fallbackIds: EXECUTOR_SKILL_IDS,
-    });
-    const sufficiencySkills = selectRuntimeSkills(skillPkg, "sufficiency", goal, {
-      forceAll: forceCandidate, fallbackIds: SUFFICIENCY_SKILL_IDS,
-    });
-    const plannerSkills = selectRuntimeSkills(skillPkg, "planner", goal, { forceAll: forceCandidate });
-    const insightBankSkills = selectRuntimeSkills(skillPkg, "insight_bank", goal, { forceAll: forceCandidate });
-    const summarySkills = selectRuntimeSkills(skillPkg, "summary", goal, { forceAll: forceCandidate });
-    const executorGuidance = skillPkg.renderSkills(executorSkills, {
-      categoricalColumns: catCols,
-    });
-    const sufficiencyGuidance = skillPkg.renderSkills(sufficiencySkills, {
-      header: "COVERAGE AUDIT RULES",
-      categoricalColumns: catCols,
-    });
-    const plannerGuidance = skillPkg.renderSkills(plannerSkills, { header: "PLANNING GUIDANCE", categoricalColumns: catCols });
-    const insightBankGuidance = skillPkg.renderSkills(insightBankSkills, { header: "INSIGHT SELECTION GUIDANCE", categoricalColumns: catCols });
-    const summaryGuidance = skillPkg.renderSkills(summarySkills, { header: "SUMMARY GUIDANCE", categoricalColumns: catCols });
-    const schemaContext = loaded.schema_context + executorGuidance;
+    const schemaContext = loaded.schema_context;
 
     onLog(
       `dataset loaded: schema ${loaded.schema_context.length} chars` +
-        `${executorGuidance ? ` + ${executorGuidance.length} chars skill guidance` : ""}, ` +
-        `grouping=[${loaded.grouping_columns.slice(0, 4).join(", ")}]`,
+        `, grouping=[${loaded.grouping_columns.slice(0, 4).join(", ")}]`,
     );
     if (useSkills) {
       onLog(
-        `skills: ${skillPkg.meta.version ?? "?"} ` +
-          `(${skillPkg.skills.length} available, selected=` +
-          `${[...executorSkills, ...sufficiencySkills].map((skill) => skill.id).join(",")}, ` +
-          `status=${skillPkg.meta.status ?? "?"})`,
+        `skills: ${skillRuntime.skills.length} available from ${skillRuntime.directories.length} director${skillRuntime.directories.length === 1 ? "y" : "ies"}; ` +
+          "full content is available only through read_skill",
       );
     }
 
@@ -413,7 +390,7 @@ export async function explore({
       followUpPerLayer: questionsPerLayer,
       exploratoryPerLayer: questionsPerLayer,
       firstLayerQuestions: questionsPerLayer,
-      skillGuidance: plannerGuidance,
+      skillGuidance: "",
     });
     planner.dbDescription = schemaContext;
     const questionBudget = maxQuestions ?? Math.max(1, maxLayers * questionsPerLayer);
@@ -426,9 +403,10 @@ export async function explore({
         generateJson,
         goal: reviewGoal,
         insights,
-        skillGuidance: sufficiencyGuidance,
+        skillGuidance: "",
       }),
     });
+    tools.push(...createNativeSkillTools(skillRuntime, { state, pool }));
     const loop = await runResearchAgentLoop({
       goal,
       schemaContext,
@@ -438,7 +416,7 @@ export async function explore({
       usage,
       tools,
       state,
-      systemPromptExtension: [plannerGuidance, insightBankGuidance, summaryGuidance].join(""),
+      systemPromptExtension: skillRuntime.catalogPrompt ? `\n\n${skillRuntime.catalogPrompt}` : "",
       onLog,
     });
     const nodes = state.nodes.map((node) => ({
@@ -461,13 +439,13 @@ export async function explore({
       stoppedEarly,
       skillPackage: useSkills
         ? {
-            version: skillPkg.meta.version,
-            status: skillPkg.meta.status,
-            count: skillPkg.skills.length,
-            hash: skillPkg.hash,
-            selected_ids: [...new Set([
-              ...executorSkills, ...sufficiencySkills, ...plannerSkills, ...insightBankSkills, ...summarySkills,
-            ].map((skill) => skill.id))],
+            format: "pi-skill-directories-v1",
+            count: skillRuntime.skills.length,
+            hash: skillRuntime.hash,
+            available_names: skillRuntime.skills.map((skill) => skill.name),
+            read_names: skillRuntime.reads.map((item) => item.name),
+            reads: skillRuntime.reads,
+            executions: skillRuntime.executions,
           }
         : null,
       usage: usage.toJSON(),
