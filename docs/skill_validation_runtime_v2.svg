@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900">
+  <style>
+    text { font-family: "Microsoft YaHei", Arial, sans-serif; fill: #1f2937; }
+    .title { font-size: 29px; font-weight: 700; }
+    .subtitle { font-size: 15px; fill: #4b5563; }
+    .metric { font-size: 25px; font-weight: 700; }
+    .metriclabel { font-size: 13px; fill: #4b5563; }
+    .label { font-size: 14px; }
+    .value { font-size: 13px; font-weight: 600; }
+    .small { font-size: 12px; fill: #4b5563; }
+  </style>
+  <rect width="1280" height="900" fill="#ffffff"/>
+  <text x="60" y="62" class="title">Runtime-v2 Skill 验证：无条件注入未产生可迁移收益</text>
+  <text x="60" y="90" class="subtitle">120 个有效生成运行 · 120 个有效正式评分 · 指标：语义 primary F1（treated − control）</text>
+
+  <rect x="60" y="118" width="1160" height="58" rx="8" fill="#fff1f2" stroke="#fecdd3"/>
+  <text x="84" y="153" font-size="18" font-weight="700" fill="#9f1239">结论：9 个候选 Skill 中 0 个通过预设门槛；未进入迁移测试。</text>
+
+  <g transform="translate(60 205)">
+    <rect width="260" height="82" rx="8" fill="#f8fafc" stroke="#e5e7eb"/>
+    <text x="20" y="37" class="metric">24</text><text x="20" y="62" class="metriclabel">source-train 运行</text>
+    <rect x="290" width="260" height="82" rx="8" fill="#f8fafc" stroke="#e5e7eb"/>
+    <text x="310" y="37" class="metric">120 / 120</text><text x="310" y="62" class="metriclabel">有效验证运行</text>
+    <rect x="580" width="260" height="82" rx="8" fill="#f8fafc" stroke="#e5e7eb"/>
+    <text x="600" y="37" class="metric">0.673</text><text x="600" y="62" class="metriclabel">共享对照组平均 F1</text>
+    <rect x="870" width="260" height="82" rx="8" fill="#f8fafc" stroke="#e5e7eb"/>
+    <text x="890" y="37" class="metric">0 / 9</text><text x="890" y="62" class="metriclabel">通过的候选 Skill</text>
+  </g>
+
+  <text x="60" y="332" font-size="20" font-weight="700">候选 Skill 的平均 F1 差异</text>
+  <text x="60" y="355" class="small">左侧为负效应；竖线为零效应。条越向左，加入该 Skill 后得分下降越多。</text>
+  <line x1="720" y1="375" x2="720" y2="715" stroke="#64748b" stroke-width="2"/>
+  <text x="706" y="370" class="small">0</text>
+  <text x="350" y="370" class="small">−0.30</text><text x="1020" y="370" class="small">+0.05</text>
+  <line x1="360" y1="375" x2="1060" y2="375" stroke="#cbd5e1"/>
+
+  <g class="label">
+    <text x="60" y="411">Budget reserve / final answer</text><rect x="670" y="394" width="50" height="20" fill="#dc2626"/><text x="730" y="410" class="value">−0.041</text>
+    <text x="60" y="447">Derived metric screen</text><rect x="529" y="430" width="191" height="20" fill="#dc2626"/><text x="730" y="446" class="value">−0.159</text>
+    <text x="60" y="483">Trend stress test</text><rect x="409" y="466" width="311" height="20" fill="#b91c1c"/><text x="730" y="482" class="value">−0.259</text>
+    <text x="60" y="519">Categorical redundancy audit</text><rect x="695" y="502" width="25" height="20" fill="#dc2626"/><text x="730" y="518" class="value">−0.021</text>
+    <text x="60" y="555">Label/content verification</text><rect x="586" y="538" width="134" height="20" fill="#dc2626"/><text x="730" y="554" class="value">−0.112</text>
+    <text x="60" y="591">Missingness-before-comparison</text><rect x="655" y="574" width="65" height="20" fill="#dc2626"/><text x="730" y="590" class="value">−0.054</text>
+    <text x="60" y="627">Scope guard on stated window</text><rect x="537" y="610" width="183" height="20" fill="#dc2626"/><text x="730" y="626" class="value">−0.153</text>
+    <text x="60" y="663">Effect-size discipline</text><rect x="720" y="646" width="9" height="20" fill="#ca8a04"/><text x="739" y="662" class="value">+0.007</text>
+    <text x="60" y="699">Integrity defects to headline</text><rect x="554" y="682" width="166" height="20" fill="#dc2626"/><text x="730" y="698" class="value">−0.138</text>
+  </g>
+
+  <rect x="60" y="744" width="1160" height="110" rx="8" fill="#f8fafc" stroke="#e5e7eb"/>
+  <text x="84" y="777" font-size="16" font-weight="700">如何解释这轮负结果</text>
+  <text x="84" y="805" class="subtitle">实验强制把每个专用 Skill 注入每个 case 和多个运行阶段，因此测到的是“无条件提示注入”的效果，而不是“按触发条件选择 Skill”的效果。</text>
+  <text x="84" y="831" class="subtitle">下一轮应拆分为：触发器准确性 → 仅在适用 case 上的条件效应 → 可执行检查的端到端迁移。</text>
+  <text x="60" y="880" class="small">数据来源：validation_records_runtime_v2_scored.json；2026-09-20。统计解释见 SKILL_VALIDATION_RUNTIME_V2_REPORT.md。</text>
+</svg>
