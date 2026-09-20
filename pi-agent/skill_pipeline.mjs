@@ -26,7 +26,7 @@ const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 
 if (command === "mine") {
   const episodes = mineEpisodes(required("experiment-dir"), {
-    scorerId: arg("scorer-id", "local-deepseek-v41-thinking-v1"),
+    scorerId: arg("scorer-id", "local-deepseek-v41-thinking-v2"),
     metric: arg("metric", "semantic.primary.f1"),
   });
   writeJsonExclusive(required("output"), {
@@ -114,7 +114,7 @@ if (command === "mine") {
 } else if (command === "collect-validation") {
   const records = collectValidationRecords(readJson(required("plan")), {
     outRoot: required("out-root"),
-    scorerId: arg("scorer-id", "local-deepseek-v41-thinking-v1"),
+    scorerId: arg("scorer-id", "local-deepseek-v41-thinking-v2"),
     metric: arg("metric", "semantic.primary.f1"),
   });
   writeJsonExclusive(required("output"), records);

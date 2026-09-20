@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -32,8 +33,19 @@ test("episode miner reads source-train immutable runs and ignores validation run
     writeFileSync(join(run, "trajectory.jsonl"), `${JSON.stringify({
       id: "q1", layer: 1, question: "q", answer: "a", toolCalls: [],
     })}\n`);
+    const predictionPath = join(run, "prediction.json");
+    writeFileSync(predictionPath, JSON.stringify({ case_id: caseId, pred_insights: ["a"] }));
+    const predictionSha256 = createHash("sha256").update(
+      readFileSync(predictionPath),
+    ).digest("hex");
     writeFileSync(join(run, "scores", "judge", "judge_run_1.json"), JSON.stringify({
+      prediction: predictionPath,
+      prediction_sha256: predictionSha256,
+      case_id: caseId,
+      judge_run: 1,
+      scorer_id: "judge",
       semantic: { primary: { f1: 0.5 } },
+      usage: { calls: 1 },
     }));
   };
   writeRun("flag-1", "source-train");
@@ -42,6 +54,7 @@ test("episode miner reads source-train immutable runs and ignores validation run
   assert.equal(episodes.length, 1);
   assert.equal(episodes[0].case_id, "flag-1");
   assert.equal(episodes[0].steps[0].question, "q");
+  assert.equal(episodes[0].score_provenance.status, "valid");
 });
 
 test("extraction and generalization are separate injected agent calls", async () => {

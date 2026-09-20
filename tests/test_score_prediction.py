@@ -58,6 +58,7 @@ class OfflineScoreTests(unittest.TestCase):
         self.assertEqual(score["scorer"]["model"], "fake-judge")
         self.assertEqual(score["semantic"]["primary"]["recall"], 0.5)
         self.assertEqual(score["judge_run"], 1)
+        self.assertEqual(len(score["prediction_sha256"]), 64)
         self.assertEqual(FakeScorer.insight_calls, 1)
         self.assertEqual(score["semantic"]["raw"]["reused_from"], "primary")
 

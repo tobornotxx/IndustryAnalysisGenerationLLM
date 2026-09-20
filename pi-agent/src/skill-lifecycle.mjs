@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
   existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { assertCaseSplit } from "./split-registry.mjs";
 
@@ -22,6 +22,37 @@ function nested(value, dotted) {
 
 function mean(values) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function sha256File(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+export function validateScoreArtifact(score, {
+  scorePath, scorerId, predictionPath, caseId, metric,
+}) {
+  const errors = [];
+  if (score.scorer_id !== scorerId) errors.push(`scorer_id=${score.scorer_id ?? "missing"}`);
+  if (score.case_id !== caseId) errors.push(`case_id=${score.case_id ?? "missing"}`);
+  if (!Number.isInteger(Number(score.judge_run)) || Number(score.judge_run) < 1) {
+    errors.push("invalid judge_run");
+  }
+  const expectedPrediction = resolve(predictionPath);
+  if (!score.prediction || resolve(score.prediction) !== expectedPrediction) {
+    errors.push("prediction path does not match the run artifact");
+  }
+  const expectedHash = existsSync(predictionPath) ? sha256File(predictionPath) : null;
+  if (!expectedHash) errors.push("prediction artifact is missing");
+  else if (!score.prediction_sha256) errors.push("prediction_sha256 is missing");
+  else if (score.prediction_sha256 !== expectedHash) errors.push("prediction_sha256 does not match");
+  const calls = Number(score.usage?.calls ?? 0);
+  if (!Number.isFinite(calls) || calls < 1) errors.push("judge usage.calls must be positive");
+  const value = Number(nested(score, metric));
+  if (!Number.isFinite(value)) errors.push(`metric is missing or non-finite: ${metric}`);
+  if (errors.length) {
+    throw new Error(`invalid score artifact ${scorePath}: ${errors.join("; ")}`);
+  }
+  return { value, calls, judgeRun: Number(score.judge_run) };
 }
 
 function numericValues(value) {
@@ -62,7 +93,7 @@ export function packageHash(pkg) {
 
 export function mineEpisodes(experimentDir, {
   split = "source-train",
-  scorerId = "local-deepseek-v41-thinking-v1",
+  scorerId = "local-deepseek-v41-thinking-v2",
   metric = "semantic.primary.f1",
 } = {}) {
   if (split !== "source-train") throw new Error("skill mining is restricted to source-train");
@@ -73,11 +104,21 @@ export function mineEpisodes(experimentDir, {
     assertCaseSplit(manifest.benchmark_id, manifest.case_id, split);
     const runDir = dirname(manifestPath);
     const scoreDir = join(runDir, "scores", scorerId);
-    const scores = existsSync(scoreDir)
+    const predictionPath = join(runDir, "prediction.json");
+    const scoreFiles = existsSync(scoreDir)
       ? readdirSync(scoreDir).filter((name) => /^judge_run_\d+\.json$/.test(name)).sort()
-        .map((name) => nested(JSON.parse(readFileSync(join(scoreDir, name), "utf8")), metric))
-        .map(Number).filter(Number.isFinite)
       : [];
+    const validatedScores = scoreFiles.map((name) => {
+      const scorePath = join(scoreDir, name);
+      const score = JSON.parse(readFileSync(scorePath, "utf8"));
+      return {
+        path: scorePath,
+        ...validateScoreArtifact(score, {
+          scorePath, scorerId, predictionPath, caseId: manifest.case_id, metric,
+        }),
+      };
+    });
+    const scores = validatedScores.map((item) => item.value);
     const trajectoryPath = join(runDir, "trajectory.jsonl");
     if (!scores.length || !existsSync(trajectoryPath)) continue;
     const steps = readFileSync(trajectoryPath, "utf8").split(/\r?\n/).filter(Boolean).map(JSON.parse);
@@ -90,6 +131,19 @@ export function mineEpisodes(experimentDir, {
       agent_run: manifest.agent_run,
       score: mean(scores),
       n_judge_runs: scores.length,
+      score_provenance: {
+        status: "valid",
+        scorer_id: scorerId,
+        metric,
+        judge_runs: validatedScores.map((item) => item.judgeRun),
+        judge_calls: validatedScores.reduce((total, item) => total + item.calls, 0),
+        score_files: validatedScores.map((item) => item.path),
+        prediction_path: predictionPath,
+        prediction_sha256: sha256File(predictionPath),
+        trajectory_sha256: sha256File(trajectoryPath),
+        prompt_hash: manifest.prompt_hash ?? null,
+        generation_model: manifest.generation_model ?? null,
+      },
       prompt_hash: manifest.prompt_hash,
       skill_hash: manifest.skill_hash,
       source_manifest: manifestPath,

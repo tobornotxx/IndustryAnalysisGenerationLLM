@@ -29,6 +29,7 @@ def score_prediction(
     if judge_run < 1:
         raise ValueError("judge_run must be >= 1")
     prediction = read_json(prediction_path)
+    prediction_sha256 = hashlib.sha256(prediction_path.read_bytes()).hexdigest()
     case_id = str(prediction.get("case_id") or "")
     if not case_id:
         raise ValueError("prediction is missing case_id")
@@ -67,6 +68,7 @@ def score_prediction(
         "schema_version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "prediction": str(prediction_path.resolve()),
+        "prediction_sha256": prediction_sha256,
         "case_id": case_id,
         "judge_run": judge_run,
         "scorer_id": scorer_id,

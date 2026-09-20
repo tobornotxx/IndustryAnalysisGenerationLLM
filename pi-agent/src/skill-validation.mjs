@@ -113,7 +113,7 @@ function scoreValues(runDir, scorerId, metric) {
 }
 
 export function collectValidationRecords(plan, {
-  outRoot, scorerId = "local-deepseek-v41-thinking-v1", metric = "semantic.primary.f1",
+  outRoot, scorerId = "local-deepseek-v41-thinking-v2", metric = "semantic.primary.f1",
 } = {}) {
   const records = [];
   for (const skillPlan of plan.plans ?? []) {
