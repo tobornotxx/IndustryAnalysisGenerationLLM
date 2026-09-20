@@ -93,6 +93,13 @@ export class UsageTracker {
   }
 }
 
+/** pi-ai emits successful terminals as `message` and failures as `error`. */
+export function terminalStreamMessage(event) {
+  if (event?.type === "done") return event.message ?? null;
+  if (event?.type === "error") return event.error ?? event.message ?? null;
+  return null;
+}
+
 /** 建 DeepSeek 模型句柄 + 与 pi 的 streamFn 桥接。 */
 export function createDeepSeek({
   model = DEEPSEEK_CANONICAL_MODEL,
@@ -129,7 +136,7 @@ export function makeGenerateJson({ models, model, usage, reasoning = DEFAULT_REA
     }, { temperature, reasoning });
     let final = null;
     for await (const ev of stream) {
-      if (ev.type === "done" || ev.type === "error") final = ev.message;
+      if (ev.type === "done" || ev.type === "error") final = terminalStreamMessage(ev);
     }
     if (!final || final.stopReason === "error") {
       throw new Error(`model JSON call failed: ${final?.errorMessage ?? "no terminal response"}`);
@@ -158,7 +165,7 @@ export function makeGenerateText({ models, model, usage, reasoning = DEFAULT_REA
     );
     let final = null;
     for await (const ev of stream) {
-      if (ev.type === "done" || ev.type === "error") final = ev.message;
+      if (ev.type === "done" || ev.type === "error") final = terminalStreamMessage(ev);
     }
     if (!final || final.stopReason === "error") {
       throw new Error(`model text call failed: ${final?.errorMessage ?? "no terminal response"}`);
