@@ -101,3 +101,24 @@ test("creator cannot cite episodes it did not inspect", (t) => {
   }), /inspect evidence episode/);
   workspace.cleanup();
 });
+
+test("creator enforces the experiment's candidate Skill budget", (t) => {
+  const parent = mkdtempSync(join(tmpdir(), "pi-skill-creator-"));
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const workspace = new SkillCreatorWorkspace({
+    outputDir: join(parent, "skills"), episodes, maxSkills: 1,
+  });
+  workspace.inspectEpisode("run-low");
+  const input = {
+    description: "Use this skill when an observed aggregate change has rival explanations.",
+    capabilityGap: "Weak runs did not distinguish rival explanations.",
+    instructions: "Use this skill when explanations compete. Do not use it without computed evidence.",
+    evidenceEpisodeIds: ["run-low"],
+  };
+  workspace.createSkill({ name: "first-method", ...input });
+  assert.throws(
+    () => workspace.createSkill({ name: "second-method", ...input }),
+    /skill creation limit reached: 1/,
+  );
+  workspace.cleanup();
+});

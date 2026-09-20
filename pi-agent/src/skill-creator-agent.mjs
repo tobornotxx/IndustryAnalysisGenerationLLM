@@ -57,12 +57,16 @@ export function validateCreatorEpisodes(episodes) {
 }
 
 export class SkillCreatorWorkspace {
-  constructor({ outputDir, episodes }) {
+  constructor({ outputDir, episodes, maxSkills = 3 }) {
+    if (!Number.isInteger(maxSkills) || maxSkills < 1) {
+      throw new Error("maxSkills must be a positive integer");
+    }
     this.outputDir = resolve(outputDir);
     this.stagingDir = `${this.outputDir}.staging-${randomUUID()}`;
     this.episodes = new Map(episodes.map((episode) => [episode.episode_id, episode]));
     this.inspected = new Set();
     this.skills = new Map();
+    this.maxSkills = maxSkills;
     this.trace = [];
     this.submitted = false;
     if (existsSync(this.outputDir)) throw new Error(`refusing to overwrite skill output: ${this.outputDir}`);
@@ -83,6 +87,9 @@ export class SkillCreatorWorkspace {
 
   createSkill({ name, description, capabilityGap, instructions, evidenceEpisodeIds }) {
     const skillName = safeSkillName(name);
+    if (!this.skills.has(skillName) && this.skills.size >= this.maxSkills) {
+      throw new Error(`skill creation limit reached: ${this.maxSkills}`);
+    }
     const evidence = uniqueStrings(evidenceEpisodeIds);
     if (!description?.trim() || !capabilityGap?.trim() || !instructions?.trim()) {
       throw new Error("skill requires description, capability_gap, and instructions");
@@ -275,19 +282,25 @@ export function createSkillCreatorTools(workspace) {
   ];
 }
 
-const CREATOR_SYSTEM_PROMPT = `You are a PI Skill Creator for a data-insight research agent.
+function creatorSystemPrompt(maxSkills) {
+  return `You are a PI Skill Creator for a general-purpose PI agent that may optionally become a data-insight research agent by discovering and reading Skills.
 
-Your job is to inspect scored source-train trajectories, identify a transferable capability bottleneck, and create physical Agent Skills. Do not summarize generic reminders.
+Your job is to inspect scored source-train trajectories, identify a transferable DATA-INSIGHT capability bottleneck, and create at most ${maxSkills} physical Agent Skill${maxSkills === 1 ? "" : "s"}. The Skill is optional knowledge: at runtime the agent initially sees only its name and trigger description and independently decides whether to read or execute it. Do not assume forced prompt injection or a fixed workflow.
 
 A useful Skill must:
-- teach a multi-step analytical method the base agent did not reliably perform;
-- say when it applies and when it should not be used;
-- help generate, test, or distinguish explanations for a data pattern;
+- teach a concrete, reusable, multi-step analytical method the base agent did not reliably perform;
+- use its description as a precise trigger: say what observable analytical situation should make an agent read it;
+- help discover a pattern, propose competing explanations, test them against computed evidence, check plausible confounding or composition effects, and calibrate any causal language to the evidence;
+- explain what calculations, comparisons, falsification checks, or sensitivity checks to perform and how their outcomes change the next question;
+- say when it applies, when it should not be used, and what evidence would make its conclusion unsafe;
 - remain independent of benchmark names, literal answers, entities, dates, values, and dataset-specific column names;
 - cite only episodes you actually inspected;
 - include a reusable script and test/reference asset when computation can be made executable.
 
-Compare stronger and weaker trajectories. Diagnose the capability gap before writing. Use create_skill for SKILL.md, write_skill_asset for supporting files, validate_skill_set, fix all validation errors, then call submit_skill_set exactly once. The output must be a usable Skill directory, not JSON advice.`;
+Reject candidate ideas that are merely generic reminders, final-answer formatting, token/budget management, stopping rules, tool-use etiquette, or restatements of the base research loop. Those belong in the agent runtime, not in a data-analysis Skill. A Skill must add analytical capability that could change which evidence is computed or how rival explanations are distinguished.
+
+Compare stronger and weaker trajectories before writing. Inspect evidence from more than one source case when possible. Diagnose the capability gap, create the smallest atomic Skill set needed, and prefer one strong Skill over several overlapping reminders. Use create_skill for SKILL.md, write_skill_asset for supporting files, validate_skill_set, fix all validation errors, then call submit_skill_set exactly once. The output must be a usable Skill directory, not JSON advice.`;
+}
 
 export async function runSkillCreatorAgent({
   episodes,
@@ -295,9 +308,10 @@ export async function runSkillCreatorAgent({
   usage,
   outputDir,
   maxTurns = 20,
+  maxSkills = 3,
 }) {
   validateCreatorEpisodes(episodes);
-  const workspace = new SkillCreatorWorkspace({ outputDir, episodes });
+  const workspace = new SkillCreatorWorkspace({ outputDir, episodes, maxSkills });
   const catalog = episodes.map((episode) => ({
     episode_id: episode.episode_id,
     case_id: episode.case_id,
@@ -307,7 +321,7 @@ export async function runSkillCreatorAgent({
   }));
   const agent = new Agent({
     initialState: {
-      systemPrompt: `${CREATOR_SYSTEM_PROMPT}\n\nAVAILABLE SOURCE-TRAIN EPISODES:\n${JSON.stringify(catalog)}`,
+      systemPrompt: `${creatorSystemPrompt(maxSkills)}\n\nAVAILABLE SOURCE-TRAIN EPISODES:\n${JSON.stringify(catalog)}`,
       model: deepseek.model,
       tools: createSkillCreatorTools(workspace),
     },
