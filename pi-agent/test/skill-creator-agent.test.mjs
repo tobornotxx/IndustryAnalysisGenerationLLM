@@ -122,3 +122,27 @@ test("creator enforces the experiment's candidate Skill budget", (t) => {
   );
   workspace.cleanup();
 });
+
+test("creator validation returns training-literal findings to the agent", async (t) => {
+  const parent = mkdtempSync(join(tmpdir(), "pi-skill-creator-"));
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const workspace = new SkillCreatorWorkspace({
+    outputDir: join(parent, "skills"), episodes, forbiddenTerms: ["private_training_column"],
+  });
+  workspace.inspectEpisode("run-low");
+  workspace.createSkill({
+    name: "leaky-method",
+    description: "Use this skill when an observed aggregate change has rival explanations.",
+    capabilityGap: "Weak runs did not distinguish rival explanations.",
+    instructions: [
+      "Use this skill when explanations compete.",
+      "Compute private_training_column before deciding.",
+      "Do not use it without computed evidence.",
+    ].join("\n"),
+    evidenceEpisodeIds: ["run-low"],
+  });
+  const validation = await workspace.validate();
+  assert.equal(validation.passed, false);
+  assert.match(validation.errors.join("\n"), /forbidden-training-literal.*private_training_column/);
+  workspace.cleanup();
+});

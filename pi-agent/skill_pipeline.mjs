@@ -84,6 +84,9 @@ if (command === "mine") {
     outputDir: required("output-dir"),
     maxTurns: Number(arg("max-turns", 20)),
     maxSkills: Number(arg("max-skills", 3)),
+    forbiddenTerms: arg("forbidden-terms")
+      ? (readJson(arg("forbidden-terms")).terms ?? readJson(arg("forbidden-terms")))
+      : [],
   });
   console.log(JSON.stringify({ ...result, usage: usage.toJSON() }, null, 2));
 } else if (command === "audit") {

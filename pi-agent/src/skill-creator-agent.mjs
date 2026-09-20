@@ -11,7 +11,7 @@ import {
 import { dirname, join, resolve, sep } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
-import { NativeSkillRuntime } from "./native-skills.mjs";
+import { NativeSkillRuntime, auditNativeSkillDirectory } from "./native-skills.mjs";
 
 function toolResult(value, details = undefined) {
   return {
@@ -57,7 +57,7 @@ export function validateCreatorEpisodes(episodes) {
 }
 
 export class SkillCreatorWorkspace {
-  constructor({ outputDir, episodes, maxSkills = 3 }) {
+  constructor({ outputDir, episodes, maxSkills = 3, forbiddenTerms = [] }) {
     if (!Number.isInteger(maxSkills) || maxSkills < 1) {
       throw new Error("maxSkills must be a positive integer");
     }
@@ -67,6 +67,7 @@ export class SkillCreatorWorkspace {
     this.inspected = new Set();
     this.skills = new Map();
     this.maxSkills = maxSkills;
+    this.forbiddenTerms = uniqueStrings(forbiddenTerms);
     this.trace = [];
     this.submitted = false;
     if (existsSync(this.outputDir)) throw new Error(`refusing to overwrite skill output: ${this.outputDir}`);
@@ -159,6 +160,16 @@ export class SkillCreatorWorkspace {
     }
     if (runtime && runtime.skills.length !== this.skills.size) {
       errors.push(`loader found ${runtime.skills.length}/${this.skills.size} skills`);
+    }
+    if (runtime && this.forbiddenTerms.length) {
+      const audit = await auditNativeSkillDirectory(this.stagingDir, {
+        forbiddenTerms: this.forbiddenTerms,
+      });
+      for (const finding of audit.findings) {
+        errors.push(
+          `${finding.skill_name} ${finding.kind} in ${finding.path}: ${finding.terms.join(", ")}`,
+        );
+      }
     }
     for (const skill of this.skills.values()) {
       if (!skill.provenance.evidence_episode_ids.every((id) => this.inspected.has(id))) {
@@ -309,9 +320,12 @@ export async function runSkillCreatorAgent({
   outputDir,
   maxTurns = 20,
   maxSkills = 3,
+  forbiddenTerms = [],
 }) {
   validateCreatorEpisodes(episodes);
-  const workspace = new SkillCreatorWorkspace({ outputDir, episodes, maxSkills });
+  const workspace = new SkillCreatorWorkspace({
+    outputDir, episodes, maxSkills, forbiddenTerms,
+  });
   const catalog = episodes.map((episode) => ({
     episode_id: episode.episode_id,
     case_id: episode.case_id,
