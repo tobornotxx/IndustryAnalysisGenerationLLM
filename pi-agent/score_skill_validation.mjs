@@ -18,8 +18,8 @@ function arg(name, fallback) {
 const planPath = arg("plan");
 if (!planPath) throw new Error("--plan is required");
 const plan = JSON.parse(readFileSync(planPath, "utf8"));
-const outRoot = arg("out-root", resolve(REPO, "results/experiments"));
-const benchmarkDir = arg("benchmark-dir", resolve(REPO, "run_on_benchmark/insight-bench"));
+const outRoot = resolve(arg("out-root", resolve(REPO, "results/experiments")));
+const benchmarkDir = resolve(arg("benchmark-dir", resolve(REPO, "run_on_benchmark/insight-bench")));
 const scorerId = arg("scorer-id", "local-deepseek-v41-thinking-v2");
 const judgeRun = Number(arg("judge-run", "1"));
 const dryRun = process.argv.includes("--dry-run");
