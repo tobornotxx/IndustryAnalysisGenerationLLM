@@ -1,8 +1,11 @@
 # PI Skill transfer v3: source-valid report
 
-Date: 2026-09-21  
-Repository commit used for generation: `f772ab3ba87ad6adf3ae1c9cec3cf5f23bf6a0dc`  
-Generation model: `deepseek-flash`, thinking enabled, reasoning `medium`  
+Date: 2026-09-21
+
+Repository commit used for generation: `f772ab3ba87ad6adf3ae1c9cec3cf5f23bf6a0dc`
+
+Generation model: `deepseek-flash`, thinking enabled, reasoning `medium`
+
 Scorer: `local-deepseek-v41-thinking-v2`, primary semantic F1 only
 
 ## Decision
