@@ -110,18 +110,24 @@ export function prepareValidationPlan(candidatePackage, {
 
 export async function prepareDirectoryValidationPlan(skillRoot, {
   outputDir, caseIds = ["flag-9", "flag-10", "flag-11", "flag-12"], agentRuns = 3,
-  experimentTag = "native-v1",
+  experimentTag = "native-v1", skillNames = [],
 } = {}) {
   if (!Number.isInteger(agentRuns) || agentRuns < 2) throw new Error("agentRuns must be at least 2");
   caseIds.forEach((caseId) => assertCaseSplit("insightbench-overhaul", caseId, "source-valid"));
   const root = resolve(skillRoot);
   const runtime = await NativeSkillRuntime.load([root]);
   if (!runtime.skills.length) throw new Error("candidate skill directory contains no valid SKILL.md files");
+  const selectedNames = new Set((skillNames ?? []).map(String).map((name) => name.trim()).filter(Boolean));
+  const selectedSkills = selectedNames.size
+    ? runtime.skills.filter((skill) => selectedNames.has(skill.name))
+    : runtime.skills;
+  const missingNames = [...selectedNames].filter((name) => !runtime.skills.some((skill) => skill.name === name));
+  if (missingNames.length) throw new Error(`unknown candidate skill(s): ${missingNames.join(", ")}`);
   mkdirSync(outputDir, { recursive: true });
   const validationVersion = experimentTag || "native-v1";
   const controlExperimentId = `skillval-${validationVersion}-shared-control`;
   const plans = [];
-  for (const skill of runtime.skills) {
+  for (const skill of selectedSkills) {
     const candidateRoot = resolve(outputDir, `candidate-${skill.name}`);
     if (existsSync(candidateRoot)) throw new Error(`refusing to overwrite validation skill directory: ${candidateRoot}`);
     mkdirSync(candidateRoot, { recursive: true });

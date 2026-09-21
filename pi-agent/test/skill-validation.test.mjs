@@ -84,6 +84,18 @@ test("directory validation plan isolates each physical PI Skill", async () => {
   await assert.rejects(prepareDirectoryValidationPlan(skillRoot, {
     outputDir, caseIds: ["flag-9"], agentRuns: 2, experimentTag: "test-native",
   }), /overwrite validation skill directory/);
+
+  const selectedOutputDir = join(root, "selected-validation");
+  const selected = await prepareDirectoryValidationPlan(skillRoot, {
+    outputDir: selectedOutputDir, caseIds: ["flag-9"], agentRuns: 3,
+    experimentTag: "selected-native", skillNames: ["first-method"],
+  });
+  assert.deepEqual(selected.plans.map((item) => item.skill_id), ["first-method"]);
+  assert.equal(selected.plans[0].tasks.length, 6);
+  await assert.rejects(prepareDirectoryValidationPlan(skillRoot, {
+    outputDir: join(root, "unknown-validation"), caseIds: ["flag-9"], agentRuns: 3,
+    skillNames: ["missing-method"],
+  }), /unknown candidate skill/);
 });
 
 test("directory freeze includes only validated Skills and detects later tampering", async () => {
