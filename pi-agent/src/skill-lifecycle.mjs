@@ -28,6 +28,45 @@ function meanOrNull(values) {
   return values.length ? mean(values) : null;
 }
 
+function meanScoreMatrix(scoreArtifacts, metricRoot = "semantic.primary") {
+  const matrices = scoreArtifacts
+    .map((score) => nested(score, `${metricRoot}.matrix`))
+    .filter((matrix) => Array.isArray(matrix) && matrix.length);
+  if (!matrices.length) return null;
+  const rows = Math.min(...matrices.map((matrix) => matrix.length));
+  const cols = Math.min(...matrices.flatMap((matrix) => (
+    matrix.slice(0, rows).map((row) => Array.isArray(row) ? row.length : 0)
+  )));
+  if (!rows || !cols) return null;
+  return Array.from({ length: rows }, (_, row) => (
+    Array.from({ length: cols }, (_, col) => mean(
+      matrices.map((matrix) => Number(matrix[row][col])).filter(Number.isFinite),
+    ))
+  ));
+}
+
+function buildDiscoveryAttribution(prediction, scoreArtifacts, metric) {
+  const metricRoot = metric.split(".").slice(0, -1).join(".");
+  const matrix = meanScoreMatrix(scoreArtifacts, metricRoot);
+  const insights = prediction.pred_insights ?? prediction.insights ?? [];
+  if (!matrix) {
+    return { available: false, prediction_insights: insights };
+  }
+  const referenceBest = matrix.map((row) => Math.max(...row));
+  const predictionBest = Array.from({ length: matrix[0].length }, (_, col) => (
+    Math.max(...matrix.map((row) => row[col]))
+  ));
+  return {
+    available: true,
+    aggregation: "mean-over-judge-runs",
+    match_threshold: 0.5,
+    match_matrix: matrix,
+    reference_best_match: referenceBest,
+    prediction_best_match: predictionBest,
+    prediction_insights: insights.slice(0, predictionBest.length),
+  };
+}
+
 function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
@@ -117,6 +156,7 @@ export function mineEpisodes(experimentDir, {
       const score = JSON.parse(readFileSync(scorePath, "utf8"));
       return {
         path: scorePath,
+        artifact: score,
         ...validateScoreArtifact(score, {
           scorePath, scorerId, predictionPath, caseId: manifest.case_id, metric,
         }),
@@ -125,6 +165,7 @@ export function mineEpisodes(experimentDir, {
     const scores = validatedScores.map((item) => item.value);
     const trajectoryPath = join(runDir, "trajectory.jsonl");
     if (!scores.length || !existsSync(trajectoryPath)) continue;
+    const prediction = JSON.parse(readFileSync(predictionPath, "utf8"));
     const steps = readFileSync(trajectoryPath, "utf8").split(/\r?\n/).filter(Boolean).map(JSON.parse);
     episodes.push({
       episode_id: manifest.run_id,
@@ -150,15 +191,23 @@ export function mineEpisodes(experimentDir, {
       },
       prompt_hash: manifest.prompt_hash,
       skill_hash: manifest.skill_hash,
+      discovery_attribution: buildDiscoveryAttribution(
+        prediction, validatedScores.map((item) => item.artifact), metric,
+      ),
       source_manifest: manifestPath,
       steps: steps.map((step) => ({
         node_id: step.id,
         layer: step.layer,
         category: step.category,
+        parent_ids: step.parentIds ?? [],
         question: step.question,
+        hypothesis: step.hypothesis ?? null,
         answer: step.answer,
+        interpretation: step.interpretation ?? null,
         turns: step.turns,
-        tool_names: (step.toolCalls ?? []).map((call) => call?.name).filter(Boolean),
+        tool_names: (step.toolCalls ?? []).map((call) => (
+          typeof call === "string" ? call : call?.name
+        )).filter(Boolean),
       })),
     });
   }

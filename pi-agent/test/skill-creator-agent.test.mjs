@@ -14,14 +14,57 @@ const episodes = [
   {
     episode_id: "run-low", case_id: "flag-1", split: "source-train", score: 0.2,
     score_provenance: { status: "valid", scorer_id: "judge-v2", judge_calls: 1 },
+    discovery_attribution: {
+      available: true, match_threshold: 0.5, match_matrix: [[0.2]],
+      reference_best_match: [0.2], prediction_best_match: [0.2], prediction_insights: ["aggregate"],
+    },
     steps: [{ question: "What changed?", answer: "A changed.", tool_names: ["run_sql"] }],
   },
   {
-    episode_id: "run-high", case_id: "flag-2", split: "source-train", score: 0.8,
+    episode_id: "run-high", case_id: "flag-1", split: "source-train", score: 0.8,
     score_provenance: { status: "valid", scorer_id: "judge-v2", judge_calls: 1 },
+    discovery_attribution: {
+      available: true, match_threshold: 0.5, match_matrix: [[0.9]],
+      reference_best_match: [0.9], prediction_best_match: [0.9], prediction_insights: ["composition"],
+    },
     steps: [{ question: "What drives the change?", answer: "Composition explains it.", tool_names: ["run_python"] }],
   },
+  {
+    episode_id: "run-low-2", case_id: "flag-2", split: "source-train", score: 0.3,
+    score_provenance: { status: "valid", scorer_id: "judge-v2", judge_calls: 1 },
+    discovery_attribution: {
+      available: true, match_threshold: 0.5, match_matrix: [[0.1]],
+      reference_best_match: [0.1], prediction_best_match: [0.1], prediction_insights: ["surface trend"],
+    },
+    steps: [{ question: "Is there a trend?", answer: "Maybe.", tool_names: ["run_sql"] }],
+  },
+  {
+    episode_id: "run-high-2", case_id: "flag-2", split: "source-train", score: 0.7,
+    score_provenance: { status: "valid", scorer_id: "judge-v2", judge_calls: 1 },
+    discovery_attribution: {
+      available: true, match_threshold: 0.5, match_matrix: [[0.8]],
+      reference_best_match: [0.8], prediction_best_match: [0.8], prediction_insights: ["regime change"],
+    },
+    steps: [{ question: "Which subgroup changed?", answer: "One regime changed.", tool_names: ["run_python"] }],
+  },
 ];
+
+function primeDiscovery(workspace) {
+  for (const episode of episodes) workspace.inspectEpisode(episode.episode_id);
+  workspace.compareEpisodes("run-high", "run-low");
+  workspace.compareEpisodes("run-high-2", "run-low-2");
+}
+
+function discoverySkillInput() {
+  return {
+    description: "Use this skill when an aggregate pattern may hide a more decision-relevant subgroup or regime.",
+    capabilityGap: "Weak runs stopped at aggregates while stronger runs found a new explanatory branch.",
+    discoveryGain: "Across two cases, stronger runs expanded the search and found a newly covered subgroup or regime.",
+    instructions: "Use this skill when an aggregate signal appears. Search and rank candidate branches. Do not use it without a measurable signal.",
+    positiveEvidenceEpisodeIds: ["run-high", "run-high-2"],
+    negativeEvidenceEpisodeIds: ["run-low", "run-low-2"],
+  };
+}
 
 function resultJson(result) {
   return JSON.parse(result.content[0].text);
@@ -47,13 +90,24 @@ test("creator writes a physical PI Skill with exact episode provenance", async (
   const tools = createSkillCreatorTools(workspace);
   const find = (name) => tools.find((tool) => tool.name === name);
 
-  await find("inspect_episode").execute("1", { episode_id: "run-low" });
-  await find("inspect_episode").execute("2", { episode_id: "run-high" });
+  for (const episode of episodes) {
+    await find("inspect_episode").execute("inspect", { episode_id: episode.episode_id });
+  }
+  const comparison = resultJson(await find("compare_episodes").execute("compare-1", {
+    positive_episode_id: "run-high", negative_episode_id: "run-low",
+  }));
+  assert.deepEqual(comparison.gained_reference_slots, [0]);
+  assert.equal(comparison.gained_prediction_insights[0].insight, "composition");
+  await find("compare_episodes").execute("compare-2", {
+    positive_episode_id: "run-high-2", negative_episode_id: "run-low-2",
+  });
   await find("create_skill").execute("3", {
     name: "decompose-observed-shifts",
     description: "Separate composition changes from within-group changes before explaining an aggregate shift.",
     capability_gap: "Weak runs described the aggregate while stronger runs tested competing decomposition explanations.",
-    evidence_episode_ids: ["run-low", "run-high"],
+    discovery_gain: "In two cases the stronger path opened a new subgroup or regime branch that covered a missed reference slot.",
+    positive_evidence_episode_ids: ["run-high", "run-high-2"],
+    negative_evidence_episode_ids: ["run-low", "run-low-2"],
     instructions: [
       "# Decompose observed shifts",
       "Use this skill when an aggregate metric changes and group composition may also have changed.",
@@ -72,9 +126,10 @@ test("creator writes a physical PI Skill with exact episode provenance", async (
     skill_name: "decompose-observed-shifts",
     path: "tests/test_decompose.py",
     content: [
-      "import pandas as pd",
       "from scripts.decompose import run",
-      "assert run(pd.DataFrame({'group': ['A', 'B']}), {})['groups'] == 2",
+      "class Fixture:",
+      "    shape = (2, 1)",
+      "assert run(Fixture(), {})['groups'] == 2",
       "",
     ].join("\n"),
   });
@@ -89,8 +144,10 @@ test("creator writes a physical PI Skill with exact episode provenance", async (
   const provenance = JSON.parse(readFileSync(
     join(output, "decompose-observed-shifts", "provenance.json"), "utf8",
   ));
-  assert.deepEqual(provenance.evidence_episode_ids, ["run-low", "run-high"]);
-  assert.match(readFileSync(join(output, "creator_trajectory.jsonl"), "utf8"), /inspect_episode/);
+  assert.deepEqual(provenance.positive_evidence_episode_ids, ["run-high", "run-high-2"]);
+  assert.deepEqual(provenance.negative_evidence_episode_ids, ["run-low", "run-low-2"]);
+  assert.deepEqual(provenance.compared_case_ids.sort(), ["flag-1", "flag-2"]);
+  assert.match(readFileSync(join(output, "creator_trajectory.jsonl"), "utf8"), /compare_episodes/);
 });
 
 test("creator cannot cite episodes it did not inspect", (t) => {
@@ -101,8 +158,10 @@ test("creator cannot cite episodes it did not inspect", (t) => {
     name: "uninspected-evidence",
     description: "A valid description.",
     capabilityGap: "A gap.",
+    discoveryGain: "A stronger run found an extra pattern.",
     instructions: "Use this skill when appropriate. Do not use it otherwise.",
-    evidenceEpisodeIds: ["run-low"],
+    positiveEvidenceEpisodeIds: ["run-high", "run-high-2"],
+    negativeEvidenceEpisodeIds: ["run-low", "run-low-2"],
   }), /inspect evidence episode/);
   workspace.cleanup();
 });
@@ -113,13 +172,8 @@ test("creator enforces the experiment's candidate Skill budget", (t) => {
   const workspace = new SkillCreatorWorkspace({
     outputDir: join(parent, "skills"), episodes, maxSkills: 1,
   });
-  workspace.inspectEpisode("run-low");
-  const input = {
-    description: "Use this skill when an observed aggregate change has rival explanations.",
-    capabilityGap: "Weak runs did not distinguish rival explanations.",
-    instructions: "Use this skill when explanations compete. Do not use it without computed evidence.",
-    evidenceEpisodeIds: ["run-low"],
-  };
+  primeDiscovery(workspace);
+  const input = discoverySkillInput();
   workspace.createSkill({ name: "first-method", ...input });
   assert.throws(
     () => workspace.createSkill({ name: "second-method", ...input }),
@@ -134,17 +188,15 @@ test("creator validation returns training-literal findings to the agent", async 
   const workspace = new SkillCreatorWorkspace({
     outputDir: join(parent, "skills"), episodes, forbiddenTerms: ["private_training_column"],
   });
-  workspace.inspectEpisode("run-low");
+  primeDiscovery(workspace);
   workspace.createSkill({
     name: "leaky-method",
-    description: "Use this skill when an observed aggregate change has rival explanations.",
-    capabilityGap: "Weak runs did not distinguish rival explanations.",
+    ...discoverySkillInput(),
     instructions: [
       "Use this skill when explanations compete.",
       "Compute private_training_column before deciding.",
       "Do not use it without computed evidence.",
     ].join("\n"),
-    evidenceEpisodeIds: ["run-low"],
   });
   const validation = await workspace.validate();
   assert.equal(validation.passed, false);
@@ -156,13 +208,11 @@ test("creator validation executes generated Python tests", async (t) => {
   const parent = mkdtempSync(join(tmpdir(), "pi-skill-creator-"));
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   const workspace = new SkillCreatorWorkspace({ outputDir: join(parent, "skills"), episodes });
-  workspace.inspectEpisode("run-low");
+  primeDiscovery(workspace);
   workspace.createSkill({
     name: "tested-method",
-    description: "Use this skill when an observed aggregate change has rival explanations.",
-    capabilityGap: "Weak runs did not distinguish rival explanations.",
+    ...discoverySkillInput(),
     instructions: "Use this skill when explanations compete. Do not use it without computed evidence.",
-    evidenceEpisodeIds: ["run-low"],
   });
   workspace.writeAsset({
     skillName: "tested-method", path: "scripts/method.py", content: "def answer(): return 1\n",

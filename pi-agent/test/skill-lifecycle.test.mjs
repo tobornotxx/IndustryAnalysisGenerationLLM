@@ -44,7 +44,7 @@ test("episode miner reads source-train immutable runs and ignores validation run
       case_id: caseId,
       judge_run: 1,
       scorer_id: "judge",
-      semantic: { primary: { f1: 0.5 } },
+      semantic: { primary: { f1: 0.5, matrix: [[0.75]] } },
       usage: { calls: 1 },
     }));
   };
@@ -55,6 +55,9 @@ test("episode miner reads source-train immutable runs and ignores validation run
   assert.equal(episodes[0].case_id, "flag-1");
   assert.equal(episodes[0].steps[0].question, "q");
   assert.equal(episodes[0].score_provenance.status, "valid");
+  assert.equal(episodes[0].discovery_attribution.available, true);
+  assert.deepEqual(episodes[0].discovery_attribution.reference_best_match, [0.75]);
+  assert.deepEqual(episodes[0].discovery_attribution.prediction_insights, ["a"]);
 });
 
 test("extraction and generalization are separate injected agent calls", async () => {

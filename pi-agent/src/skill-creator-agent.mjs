@@ -75,6 +75,7 @@ export class SkillCreatorWorkspace {
     this.stagingDir = `${this.outputDir}.staging-${randomUUID()}`;
     this.episodes = new Map(episodes.map((episode) => [episode.episode_id, episode]));
     this.inspected = new Set();
+    this.comparisons = new Map();
     this.skills = new Map();
     this.maxSkills = maxSkills;
     this.forbiddenTerms = uniqueStrings(forbiddenTerms);
@@ -96,20 +97,127 @@ export class SkillCreatorWorkspace {
     return episode;
   }
 
-  createSkill({ name, description, capabilityGap, instructions, evidenceEpisodeIds }) {
+  compareEpisodes(positiveEpisodeId, negativeEpisodeId) {
+    const positive = this.episodes.get(positiveEpisodeId);
+    const negative = this.episodes.get(negativeEpisodeId);
+    if (!positive || !negative) throw new Error("comparison contains an unknown episode");
+    if (!this.inspected.has(positiveEpisodeId) || !this.inspected.has(negativeEpisodeId)) {
+      throw new Error("inspect both episodes before comparing them");
+    }
+    if (positive.case_id !== negative.case_id) {
+      throw new Error("discovery comparison requires two runs from the same case");
+    }
+    if (!(Number(positive.score) > Number(negative.score))) {
+      throw new Error("positive episode score must exceed negative episode score");
+    }
+    const pos = positive.discovery_attribution;
+    const neg = negative.discovery_attribution;
+    if (!pos?.available || !neg?.available) {
+      throw new Error("discovery comparison requires per-reference score attribution");
+    }
+    const threshold = Math.max(Number(pos.match_threshold ?? 0.5), Number(neg.match_threshold ?? 0.5));
+    const nRefs = Math.min(pos.reference_best_match.length, neg.reference_best_match.length);
+    const gainedReferenceSlots = [];
+    const lostReferenceSlots = [];
+    for (let index = 0; index < nRefs; index += 1) {
+      if (pos.reference_best_match[index] >= threshold && neg.reference_best_match[index] < threshold) {
+        gainedReferenceSlots.push(index);
+      }
+      if (pos.reference_best_match[index] < threshold && neg.reference_best_match[index] >= threshold) {
+        lostReferenceSlots.push(index);
+      }
+    }
+    const gainedInsights = [];
+    for (let col = 0; col < (pos.match_matrix?.[0]?.length ?? 0); col += 1) {
+      const matchesGainedSlot = gainedReferenceSlots.some((row) => (
+        Number(pos.match_matrix?.[row]?.[col] ?? 0) >= threshold
+      ));
+      if (matchesGainedSlot) {
+        gainedInsights.push({
+          prediction_index: col,
+          best_match: pos.prediction_best_match[col],
+          insight: pos.prediction_insights[col],
+        });
+      }
+    }
+    const comparison = {
+      case_id: positive.case_id,
+      positive_episode_id: positiveEpisodeId,
+      negative_episode_id: negativeEpisodeId,
+      score_delta: Number(positive.score) - Number(negative.score),
+      match_threshold: threshold,
+      gained_reference_slots: gainedReferenceSlots,
+      lost_reference_slots: lostReferenceSlots,
+      gained_prediction_insights: gainedInsights,
+      positive_question_path: positive.steps.map((step) => ({
+        node_id: step.node_id,
+        layer: step.layer,
+        question: step.question,
+        hypothesis: step.hypothesis,
+        interpretation: step.interpretation,
+        tool_names: step.tool_names,
+      })),
+      negative_question_path: negative.steps.map((step) => ({
+        node_id: step.node_id,
+        layer: step.layer,
+        question: step.question,
+        hypothesis: step.hypothesis,
+        interpretation: step.interpretation,
+        tool_names: step.tool_names,
+      })),
+    };
+    const key = `${positiveEpisodeId}::${negativeEpisodeId}`;
+    this.comparisons.set(key, comparison);
+    this.trace.push({
+      sequence: this.trace.length + 1,
+      action: "compare_episodes",
+      positive_episode_id: positiveEpisodeId,
+      negative_episode_id: negativeEpisodeId,
+      case_id: positive.case_id,
+      gained_reference_slots: gainedReferenceSlots,
+    });
+    return comparison;
+  }
+
+  createSkill({
+    name,
+    description,
+    capabilityGap,
+    discoveryGain,
+    instructions,
+    positiveEvidenceEpisodeIds,
+    negativeEvidenceEpisodeIds,
+  }) {
     const skillName = safeSkillName(name);
     if (!this.skills.has(skillName) && this.skills.size >= this.maxSkills) {
       throw new Error(`skill creation limit reached: ${this.maxSkills}`);
     }
-    const evidence = uniqueStrings(evidenceEpisodeIds);
-    if (!description?.trim() || !capabilityGap?.trim() || !instructions?.trim()) {
-      throw new Error("skill requires description, capability_gap, and instructions");
+    const positiveEvidence = uniqueStrings(positiveEvidenceEpisodeIds);
+    const negativeEvidence = uniqueStrings(negativeEvidenceEpisodeIds);
+    const evidence = uniqueStrings([...positiveEvidence, ...negativeEvidence]);
+    if (!description?.trim() || !capabilityGap?.trim() || !discoveryGain?.trim() || !instructions?.trim()) {
+      throw new Error("skill requires description, capability_gap, discovery_gain, and instructions");
     }
-    if (!evidence.length) throw new Error("skill requires evidence_episode_ids");
+    if (!positiveEvidence.length || !negativeEvidence.length) {
+      throw new Error("discovery skill requires positive and negative evidence episodes");
+    }
     const unknown = evidence.filter((id) => !this.episodes.has(id));
     if (unknown.length) throw new Error(`unknown evidence episode(s): ${unknown.join(", ")}`);
     const uninspected = evidence.filter((id) => !this.inspected.has(id));
     if (uninspected.length) throw new Error(`inspect evidence episode(s) before citing them: ${uninspected.join(", ")}`);
+    const comparedCases = new Set();
+    for (const positiveId of positiveEvidence) {
+      for (const negativeId of negativeEvidence) {
+        const positive = this.episodes.get(positiveId);
+        const negative = this.episodes.get(negativeId);
+        if (positive?.case_id !== negative?.case_id) continue;
+        const comparison = this.comparisons.get(`${positiveId}::${negativeId}`);
+        if (comparison?.gained_reference_slots?.length) comparedCases.add(positive.case_id);
+      }
+    }
+    if (comparedCases.size < 2) {
+      throw new Error("discovery skill requires reference-coverage gains in strong-vs-weak comparisons from at least two cases");
+    }
     const dir = join(this.stagingDir, skillName);
     mkdirSync(dir, { recursive: true });
     const skillMd = [
@@ -124,8 +232,13 @@ export class SkillCreatorWorkspace {
     const provenance = {
       schema_version: 1,
       skill_name: skillName,
+      capability_type: "discovery",
       capability_gap: capabilityGap.trim(),
+      discovery_gain: discoveryGain.trim(),
       evidence_episode_ids: evidence,
+      positive_evidence_episode_ids: positiveEvidence,
+      negative_evidence_episode_ids: negativeEvidence,
+      compared_case_ids: [...comparedCases],
       evidence: evidence.map((id) => {
         const episode = this.episodes.get(id);
         return {
@@ -279,6 +392,21 @@ export function createSkillCreatorTools(workspace) {
       },
     },
     {
+      name: "compare_episodes",
+      label: "Compare strong and weak discovery trajectories",
+      description:
+        "Compare two inspected runs from the same case. Returns reference slots found only by the stronger run, the responsible predicted insights, and both question paths.",
+      parameters: Type.Object({
+        positive_episode_id: Type.String(),
+        negative_episode_id: Type.String(),
+      }),
+      async execute(_id, input) {
+        return toolResult(workspace.compareEpisodes(
+          input.positive_episode_id, input.negative_episode_id,
+        ));
+      },
+    },
+    {
       name: "create_skill",
       label: "Create or revise skill",
       description:
@@ -287,16 +415,20 @@ export function createSkillCreatorTools(workspace) {
         name: Type.String(),
         description: Type.String(),
         capability_gap: Type.String(),
+        discovery_gain: Type.String(),
         instructions: Type.String(),
-        evidence_episode_ids: Type.Array(Type.String()),
+        positive_evidence_episode_ids: Type.Array(Type.String()),
+        negative_evidence_episode_ids: Type.Array(Type.String()),
       }),
       async execute(_id, input) {
         return toolResult(workspace.createSkill({
           name: input.name,
           description: input.description,
           capabilityGap: input.capability_gap,
+          discoveryGain: input.discovery_gain,
           instructions: input.instructions,
-          evidenceEpisodeIds: input.evidence_episode_ids,
+          positiveEvidenceEpisodeIds: input.positive_evidence_episode_ids,
+          negativeEvidenceEpisodeIds: input.negative_evidence_episode_ids,
         }));
       },
     },
@@ -341,17 +473,24 @@ export function createSkillCreatorTools(workspace) {
 function creatorSystemPrompt(maxSkills) {
   return `You are a PI Skill Creator for a general-purpose PI agent that may optionally become a data-insight research agent by discovering and reading Skills.
 
-Your job is to inspect scored source-train trajectories, identify a transferable DATA-INSIGHT capability bottleneck, and create at most ${maxSkills} physical Agent Skill${maxSkills === 1 ? "" : "s"}. The Skill is optional knowledge: at runtime the agent initially sees only its name and trigger description and independently decides whether to read or execute it. Do not assume forced prompt injection or a fixed workflow.
+Your job in this cycle is specifically to create DISCOVERY Skills: reusable search policies that help the agent uncover additional decision-relevant patterns that weaker runs miss. Inspect scored source-train trajectories, compare stronger and weaker runs of the SAME case, identify the question or computation where the stronger path first gained reference coverage, and create at most ${maxSkills} physical Agent Skill${maxSkills === 1 ? "" : "s"}. The Skill is optional knowledge: at runtime the agent initially sees only its name and trigger description and independently decides whether to read or execute it. Do not assume forced prompt injection or a fixed workflow.
 
 A useful Skill must:
-- teach a concrete, reusable, multi-step analytical method the base agent did not reliably perform;
+- teach a concrete, reusable, multi-step SEARCH method the base agent did not reliably perform;
 - use its description as a precise trigger: say what observable analytical situation should make an agent read it;
-- help discover a pattern, propose competing explanations, test them against computed evidence, check plausible confounding or composition effects, and calibrate any causal language to the evidence;
-- explain what calculations, comparisons, falsification checks, or sensitivity checks to perform and how their outcomes change the next question;
+- expand the hypothesis space before narrowing it: enumerate several plausible slices, interactions, regimes, text clusters, sequences, or mechanisms appropriate to the observed signal;
+- rank candidate discoveries using computed evidence such as coverage, effect magnitude, stability, distinctness, and decision relevance;
+- explain how the top candidates redirect the next research questions, including at least one rival explanation where relevant;
 - say when it applies, when it should not be used, and what evidence would make its conclusion unsafe;
 - remain independent of benchmark names, literal answers, entities, dates, values, and dataset-specific column names;
-- cite only episodes you actually inspected;
+- cite only episodes you actually inspected and compared;
 - include a reusable script and test/reference asset when computation can be made executable.
+
+Evidence requirements:
+- Use inspect_episode, then compare_episodes on a stronger and weaker run from the same case.
+- A candidate must be supported by strong-vs-weak comparisons from at least two distinct source cases.
+- In discovery_gain, state what the stronger paths found that weaker paths missed and which search transition plausibly enabled it.
+- Positive evidence means the stronger run; negative evidence means the weaker same-case run. Do not substitute unrelated high- and low-scoring cases.
 
 Selection and scope requirements:
 - Make the catalog description discriminating, not universal: state the observable situation where the Skill can change a downstream decision, and do not use catchalls such as "ANY derived metric".
@@ -366,9 +505,9 @@ Executable Skill contract:
 - Return one JSON-serializable object with applicability, checks performed, evidence, verdict, limitations, and suggested next questions. Printing is not the interface.
 - Its offline test must call run once on a representative DataFrame fixture and assert decision-relevant outputs. The Creator validator will reject scripts without this entrypoint or failing tests.
 
-Reject candidate ideas that are merely generic reminders, final-answer formatting, token/budget management, stopping rules, tool-use etiquette, or restatements of the base research loop. Those belong in the agent runtime, not in a data-analysis Skill. A Skill must add analytical capability that could change which evidence is computed or how rival explanations are distinguished.
+Reject candidate ideas that are merely generic reminders, final-answer formatting, token/budget management, stopping rules, tool-use etiquette, or restatements of the base research loop. Also reject a candidate whose main purpose is only to validate, audit, falsify, clean, or calibrate an already discovered claim. Those may be useful validation Skills, but they do not test the discovery-transfer hypothesis in this cycle. A discovery Skill must change what hypotheses are generated, what evidence is searched, or which branch is explored next.
 
-Compare stronger and weaker trajectories before writing. Inspect evidence from more than one source case when possible. Diagnose the capability gap, create the smallest atomic Skill set needed, and prefer one strong Skill over several overlapping reminders. Use create_skill for SKILL.md, write_skill_asset for supporting files, validate_skill_set, fix all validation errors, then call submit_skill_set exactly once. The output must be a usable Skill directory, not JSON advice.`;
+Compare stronger and weaker trajectories before writing. Diagnose the discovery gap, create the smallest atomic Skill set needed, and prefer one strong Skill over several overlapping reminders. Use create_skill for SKILL.md, write_skill_asset for supporting files, validate_skill_set, fix all validation errors, then call submit_skill_set exactly once. The output must be a usable Skill directory, not JSON advice.`;
 }
 
 export async function runSkillCreatorAgent({
@@ -390,6 +529,11 @@ export async function runSkillCreatorAgent({
     score: episode.score,
     scorer_id: episode.score_provenance.scorer_id,
     steps: episode.steps?.length ?? 0,
+    reference_slots_covered: episode.discovery_attribution?.available
+      ? episode.discovery_attribution.reference_best_match.filter(
+        (value) => value >= Number(episode.discovery_attribution.match_threshold ?? 0.5),
+      ).length
+      : null,
   }));
   const agent = new Agent({
     initialState: {
@@ -406,7 +550,7 @@ export async function runSkillCreatorAgent({
   });
   agent.shouldStopAfterTurn = () => turns >= maxTurns || workspace.submitted;
   try {
-    await agent.prompt("Inspect contrasting trajectories and create the smallest evidence-backed set of transferable data-insight Skills.");
+    await agent.prompt("Mine same-case discovery gains and create the smallest evidence-backed set of transferable discovery Skills.");
     if (!workspace.submitted) throw new Error("skill creator stopped without submitting a validated skill set");
     return { output_dir: workspace.outputDir, turns, skills: [...workspace.skills.keys()] };
   } catch (error) {
