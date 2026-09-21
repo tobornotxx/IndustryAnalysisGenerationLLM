@@ -209,6 +209,7 @@ export class SkillCreatorWorkspace {
         const result = spawnSync(pythonCommand(), [relativeTest], {
           cwd: skillDir,
           encoding: "utf8",
+          env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
           timeout: 30_000,
           maxBuffer: 1_000_000,
         });
