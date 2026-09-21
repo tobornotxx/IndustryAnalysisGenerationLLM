@@ -22,6 +22,7 @@ const outRoot = resolve(arg("out-root", resolve(REPO, "results/experiments")));
 const benchmarkDir = resolve(arg("benchmark-dir", resolve(REPO, "run_on_benchmark/insight-bench")));
 const scorerId = arg("scorer-id", "local-deepseek-v41-thinking-v2");
 const judgeRun = Number(arg("judge-run", "1"));
+const modes = arg("modes", "primary");
 const dryRun = process.argv.includes("--dry-run");
 const skillFilter = new Set((arg("skills", "") ?? "").split(",").filter(Boolean));
 const treatedOnly = process.argv.includes("--treated-only");
@@ -72,6 +73,7 @@ for (const task of tasks) {
     "--benchmark-dir", benchmarkDir,
     "--judge-run", String(judgeRun),
     "--scorer-id", scorerId,
+    "--modes", modes,
   ], { cwd: REPO, stdio: "inherit", env: process.env });
   counts[result.status === 0 ? "success" : "failed"] += 1;
 }
