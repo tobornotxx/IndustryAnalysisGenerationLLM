@@ -51,6 +51,18 @@ The composition Skill was effectively neutral on average, but that average hides
 
 The run-to-run SD within a case was often larger than the mean delta. For example, control SD was 0.0997 on `flag-10`; the composition treated SD there was 0.1734. With three repetitions, isolated gains cannot be treated as deterministic improvements.
 
+## Statistical inference
+
+The positive Composition point estimate is not statistically distinguishable from zero. Treating case as the analysis block gives:
+
+- composition: mean delta `+0.0015`, 95% CI `[-0.0491, +0.0521]`, exact blocked permutation `p=0.9636`;
+- derived-column audit: mean delta `-0.0590`, 95% CI `[-0.1586, +0.0406]`, `p=0.0503`;
+- trend robustness: mean delta `-0.0137`, 95% CI `[-0.1294, +0.1019]`, `p=0.6523`.
+
+The blocked interval first computes the three-run treated-minus-control mean within each of the four cases, then estimates uncertainty across those four case effects. The exact randomization test enumerates every 3-vs-3 assignment within each case and combines the four blocks (160,000 assignments per Skill).
+
+Even Composition's only positive case (`flag-12`, delta `+0.0455`) has a 95% Welch interval of `[-0.1408, +0.2318]`. Therefore this round supplies neither evidence of a significant improvement nor proof that Skill availability is harmful. The negative Derived result is the strongest warning signal, but its case-blocked interval still crosses zero.
+
 ## Skill activation and runtime integrity
 
 | Skill | Read rate | Run-level execution rate | Mean paired delta when read |
@@ -101,14 +113,22 @@ The rule requiring a positive delta on every validation case prevented a near-ze
 
 The gate should not be changed retroactively. Future protocols should model case and run variance explicitly rather than interpreting each three-run point estimate as deterministic.
 
+### 6. The deeper mismatch is validator Skills versus discovery Skills
+
+The three candidates mainly answer “is this claim robust or measurable?” The held-out tasks primarily require the Agent to discover where an anomaly occurs: the relevant time window, category, location, volume shift, text theme, and plausible driver chain. PI core already performs substantial metric skepticism. Adding another validator can therefore duplicate a capability the base Agent already has without increasing missing-insight recall.
+
+This distinction is clearest in the logs. The Derived Skill can recover an impressive mechanical timestamp rule, but the trajectory then narrows around that rule and omits other requested dimensions. Composition is closest to a discovery Skill and shows localized gains on assignment/segment cases, but not a stable cross-case effect.
+
+The earlier proposal to add more negative triggers is therefore only a possible efficiency refinement, not the main research upgrade. This experiment does not show that restrictions would improve performance.
+
 ## Minimum next upgrade
 
 1. **Keep the Agent architecture and executable ABI unchanged.** Autonomous discovery, reading, execution, provenance, and error accounting worked.
-2. **Strengthen Creator-side activation contracts.** Every generated description should require both goal relevance and an observed trigger. It must also state explicit negative triggers that mean “do not read this Skill.”
-3. **Add a coverage-preservation contract to generated Skills.** A local verdict may redirect one claim, but the Agent must return to the original goal and cover all still-answerable requested dimensions before submitting.
-4. **Prefer compact local diagnostics.** The executable result should identify which claim was tested, whether the Skill applies, what changed, and the next question. It should not provide a ready-made global narrative that displaces the research plan.
-5. **Use source-train cross-validation for the next Creator iteration.** Tune activation and coverage behavior on folds of `flag-1`–`flag-8`; treat the already used `flag-9`–`flag-12` split as validation history, not new evidence.
-6. **Pre-register the next selection rule before new API calls.** Retain ITT as the primary effect. Add case-blocked uncertainty intervals and a non-inferiority/harm guard; keep activation-conditioned analysis secondary because activation is post-treatment.
+2. **Change the Creator's target from validators to discovery operators.** Use source-train scorer matching matrices and high/low trajectory differences to identify repeatedly missed insights, then generate procedures that search time windows, segments, locations, volume shifts, and text themes and return ranked hypotheses with evidence.
+3. **Keep the Agent free.** Discovery Skills should expose optional tools and compact candidate evidence, not a mandatory workflow or a ready-made global conclusion. Negative triggers may be retained as metadata, but they are not the main intervention.
+4. **Run a causal content ablation.** Compare no Skill, the current validator Skill, a new discovery Skill, and an equal-length irrelevant/placebo Skill. The placebo arm tests whether mere Skill availability or reading creates attention/cost side effects.
+5. **Use source-train cross-validation for the next Creator iteration.** Tune Skill content on folds of `flag-1`–`flag-8`; treat the already used `flag-9`–`flag-12` split as validation history, not new evidence.
+6. **Pre-register the next selection rule before new API calls.** Retain Skill availability (ITT) as the primary effect. Add case-blocked confidence intervals and a blocked permutation test; keep read/execution-conditioned analysis secondary because activation is post-treatment.
 7. **Do not open source-test yet.** Only a new candidate set that passes the pre-registered validation procedure should be frozen and evaluated on untouched `flag-13`–`flag-17` (or a separately frozen test subset).
 
 ## Reproducibility artifacts
