@@ -437,6 +437,7 @@ export async function explore({
             available_names: skillRuntime.skills.map((skill) => skill.name),
             read_names: skillRuntime.reads.map((item) => item.name),
             reads: skillRuntime.reads,
+            execution_attempts: skillRuntime.executionAttempts,
             executions: skillRuntime.executions,
           }
         : null,

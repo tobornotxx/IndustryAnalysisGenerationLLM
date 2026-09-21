@@ -65,6 +65,7 @@ export class NativeSkillRuntime {
     this.diagnostics = diagnostics;
     this.byName = new Map(skills.map((skill) => [skill.name, skill]));
     this.reads = [];
+    this.executionAttempts = [];
     this.executions = [];
     this.hash = hashSkillDirectories(directories);
   }
@@ -133,6 +134,23 @@ export class NativeSkillRuntime {
     if (!existsSync(script) || !statSync(script).isFile()) throw new Error(`skill script not found: ${relativePath}`);
     return script;
   }
+}
+
+export function buildSkillPythonCode(source, skillArguments = {}, scriptLabel = "<skill-script>") {
+  const encodedSource = JSON.stringify(JSON.stringify(String(source ?? "")));
+  const encodedArguments = JSON.stringify(JSON.stringify(skillArguments ?? {}));
+  return [
+    "import json",
+    `skill_args = json.loads(${encodedArguments})`,
+    `skill_source = json.loads(${encodedSource})`,
+    `skill_module = {"__name__": "pi_skill_runtime", "__file__": ${JSON.stringify(scriptLabel)}}`,
+    `exec(compile(skill_source, ${JSON.stringify(scriptLabel)}, "exec"), skill_module)`,
+    "skill_run = skill_module.get('run')",
+    "if not callable(skill_run):",
+    "    raise RuntimeError(\"Skill script must define run(sql_results, skill_args)\")",
+    "skill_result = skill_run(sql_results.copy(), skill_args)",
+    "print(json.dumps(skill_result, ensure_ascii=False, default=str))",
+  ].join("\n");
 }
 
 export async function auditNativeSkillDirectory(skillRoot, { forbiddenTerms = [] } = {}) {
@@ -204,7 +222,8 @@ export function createNativeSkillTools(runtime, { state, pool }) {
       label: "Run skill Python script",
       description:
         "Execute a Python script supplied by a skill that has already been read. " +
-        "The selected SQL result is available to the script as `sql_results`, and JSON arguments as `skill_args`.",
+        "The script's run(sql_results, skill_args) entrypoint receives the selected SQL result and JSON arguments, " +
+        "performs its complete adaptive diagnostic in one execution, and returns a JSON-serializable result.",
       parameters: Type.Object({
         skill_name: Type.String(),
         script: Type.String(),
@@ -222,13 +241,32 @@ export function createNativeSkillTools(runtime, { state, pool }) {
         state.requireOpen(questionId);
         const scriptPath = runtime.resolveScript(skillName, relativePath);
         const source = readFileSync(scriptPath, "utf8");
-        const code = `import json\nskill_args = json.loads(${JSON.stringify(JSON.stringify(skillArguments))})\n${source}`;
-        const result = await pool.call("python", { sql, code });
-        const execution = {
+        const scriptName = relative(dirname(runtime.get(skillName).filePath), scriptPath).replaceAll("\\", "/");
+        const attempt = {
           skill_name: skillName,
-          script: relative(dirname(runtime.get(skillName).filePath), scriptPath).replaceAll("\\", "/"),
+          script: scriptName,
           question_id: questionId,
+          status: "running",
         };
+        runtime.executionAttempts.push(attempt);
+        let result;
+        try {
+          result = await pool.call("python", {
+            sql,
+            code: buildSkillPythonCode(source, skillArguments, `${skillName}/${scriptName}`),
+          });
+        } catch (error) {
+          attempt.status = "failed";
+          attempt.error = error.message;
+          throw error;
+        }
+        if (String(result.output ?? "").startsWith("Python execution error:")) {
+          attempt.status = "failed";
+          attempt.error = String(result.output).slice(0, 4_000);
+          return textResult(result.output, { ...attempt });
+        }
+        attempt.status = "success";
+        const execution = { ...attempt };
         runtime.executions.push(execution);
         state.recordToolEvidence(
           questionId,
@@ -236,7 +274,7 @@ export function createNativeSkillTools(runtime, { state, pool }) {
           { sql, arguments: skillArguments },
           result.output,
         );
-        return textResult(result.output, execution);
+        return textResult(result.output, { ...execution });
       },
     },
   ];

@@ -19,7 +19,12 @@ function makeSkillRoot() {
     "---",
     "SECRET FULL METHOD: inspect both components before interpreting the shift.",
   ].join("\n"));
-  writeFileSync(join(skill, "scripts", "decompose.py"), "print({'rows': len(sql_results), 'args': skill_args})\n");
+  writeFileSync(join(skill, "scripts", "decompose.py"), [
+    "from __future__ import annotations",
+    "def run(sql_results, skill_args):",
+    "    return {'rows': len(sql_results), 'args': skill_args}",
+    "",
+  ].join("\n"));
   return root;
 }
 
@@ -59,7 +64,8 @@ test("executed skill scripts are attached to question evidence", async (t) => {
     async call(kind, { code }) {
       assert.equal(kind, "python");
       assert.match(code, /skill_args/);
-      return { output: "rows=10" };
+      assert.match(code, /compile\(skill_source/);
+      return { output: '{"rows": 10}' };
     },
   };
   const tools = createNativeSkillTools(runtime, { state, pool });
@@ -72,7 +78,29 @@ test("executed skill scripts are attached to question evidence", async (t) => {
     arguments: { group: "region" },
   });
   assert.equal(runtime.executions.length, 1);
+  assert.equal(runtime.executionAttempts[0].status, "success");
   assert.match(state.nodes[0].evidence[0].tool, /run_skill_python:explain-shift/);
+});
+
+test("failed skill executions are attempts, not evidence or successful executions", async (t) => {
+  const root = makeSkillRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const runtime = await NativeSkillRuntime.load([root]);
+  const state = new ResearchState({ goal: "explain change", maxQuestions: 1 });
+  state.openQuestion({ question: "What drives the change?", category: "exploratory" });
+  const pool = {
+    async call() { return { output: "Python execution error: RuntimeError: fixture failure" }; },
+  };
+  const tools = createNativeSkillTools(runtime, { state, pool });
+  await findTool(tools, "read_skill").execute("1", { name: "explain-shift" });
+  const result = await findTool(tools, "run_skill_python").execute("2", {
+    skill_name: "explain-shift", script: "scripts/decompose.py", question_id: "q_001",
+    sql: "select * from main_table", arguments: {},
+  });
+  assert.match(result.content[0].text, /fixture failure/);
+  assert.equal(runtime.executionAttempts[0].status, "failed");
+  assert.equal(runtime.executions.length, 0);
+  assert.equal(state.nodes[0].evidence.length, 0);
 });
 
 test("requireFrozen rejects an ordinary candidate skill directory", async (t) => {

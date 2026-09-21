@@ -8,7 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
@@ -204,12 +204,32 @@ export class SkillCreatorWorkspace {
       if (scripts.length && !tests.length) {
         errors.push(`${skill.name} includes executable scripts but no Python test asset`);
       }
+      if (scripts.length && tests.length) {
+        const testSources = tests.map((testPath) => (
+          readFileSync(join(testDir, String(testPath)), "utf8")
+        )).join("\n");
+        if (!/\brun\s*\(/.test(testSources)) {
+          errors.push(`${skill.name} Python tests must call the run(sql_results, skill_args) entrypoint`);
+        }
+      }
+      for (const scriptPath of scripts) {
+        const source = readFileSync(join(scriptDir, String(scriptPath)), "utf8");
+        if (!/^\s*def\s+run\s*\(\s*sql_results(?:\s*:[^,]+)?\s*,\s*skill_args(?:\s*:[^)]+)?\s*\)\s*(?:->\s*[^:]+)?\s*:/m.test(source)) {
+          errors.push(
+            `${skill.name} Python script must define run(sql_results, skill_args): ${join("scripts", String(scriptPath))}`,
+          );
+        }
+      }
       for (const testPath of tests) {
         const relativeTest = join("tests", String(testPath));
         const result = spawnSync(pythonCommand(), [relativeTest], {
           cwd: skillDir,
           encoding: "utf8",
-          env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+          env: {
+            ...process.env,
+            PYTHONDONTWRITEBYTECODE: "1",
+            PYTHONPATH: [skillDir, process.env.PYTHONPATH].filter(Boolean).join(delimiter),
+          },
           timeout: 30_000,
           maxBuffer: 1_000_000,
         });
@@ -332,6 +352,19 @@ A useful Skill must:
 - remain independent of benchmark names, literal answers, entities, dates, values, and dataset-specific column names;
 - cite only episodes you actually inspected;
 - include a reusable script and test/reference asset when computation can be made executable.
+
+Selection and scope requirements:
+- Make the catalog description discriminating, not universal: state the observable situation where the Skill can change a downstream decision, and do not use catchalls such as "ANY derived metric".
+- State whether the Skill is a local diagnostic for one claim or a path-level research strategy. This is guidance for autonomous planning, not a fixed question count.
+- Put cheap qualification checks inside the relevant analytical method. Do not require a separate research question merely to decide whether the Skill applies.
+- State an early-exit condition and how a positive result should redirect later questions.
+
+Executable Skill contract:
+- A Python asset must define exactly the runtime entrypoint run(sql_results, skill_args).
+- run receives the Agent-selected SQL result as a pandas DataFrame and adaptive JSON arguments chosen for the current dataset.
+- One call to run must perform the complete relevant battery, including internally parallel or sequential checks and branching; do not make the Agent reconstruct the script across repeated Python calls.
+- Return one JSON-serializable object with applicability, checks performed, evidence, verdict, limitations, and suggested next questions. Printing is not the interface.
+- Its offline test must call run once on a representative DataFrame fixture and assert decision-relevant outputs. The Creator validator will reject scripts without this entrypoint or failing tests.
 
 Reject candidate ideas that are merely generic reminders, final-answer formatting, token/budget management, stopping rules, tool-use etiquette, or restatements of the base research loop. Those belong in the agent runtime, not in a data-analysis Skill. A Skill must add analytical capability that could change which evidence is computed or how rival explanations are distinguished.
 

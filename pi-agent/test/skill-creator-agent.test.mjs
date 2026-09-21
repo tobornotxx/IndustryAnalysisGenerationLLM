@@ -66,15 +66,20 @@ test("creator writes a physical PI Skill with exact episode provenance", async (
   await find("write_skill_asset").execute("4", {
     skill_name: "decompose-observed-shifts",
     path: "scripts/decompose.py",
-    content: "print({'groups': int(sql_results.shape[0])})\n",
+    content: "def run(sql_results, skill_args):\n    return {'groups': int(sql_results.shape[0])}\n",
   });
   await find("write_skill_asset").execute("5", {
     skill_name: "decompose-observed-shifts",
     path: "tests/test_decompose.py",
-    content: "# Offline fixture test for the decomposition script.\n",
+    content: [
+      "import pandas as pd",
+      "from scripts.decompose import run",
+      "assert run(pd.DataFrame({'group': ['A', 'B']}), {})['groups'] == 2",
+      "",
+    ].join("\n"),
   });
   const validation = resultJson(await find("validate_skill_set").execute("6", {}));
-  assert.equal(validation.passed, true);
+  assert.equal(validation.passed, true, validation.errors.join("\n"));
   const submitted = resultJson(await find("submit_skill_set").execute("7", {}));
   assert.equal(submitted.passed, true);
   assert.equal(existsSync(join(output, "decompose-observed-shifts", "SKILL.md")), true);

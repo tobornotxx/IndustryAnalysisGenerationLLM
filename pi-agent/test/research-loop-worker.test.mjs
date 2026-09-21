@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { PyWorkerPool } from "../src/py-worker.mjs";
 import { ResearchState, createResearchTools } from "../src/research-loop.mjs";
+import { NativeSkillRuntime, createNativeSkillTools } from "../src/native-skills.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKER = join(HERE, "..", "python", "worker.py");
@@ -82,4 +83,48 @@ test("research loop tools preserve real SQL and Python evidence through submissi
   assert.equal(submission.accepted, true);
   assert.equal(state.nodes[0].evidence.length, 2);
   assert.deepEqual(state.nodes[0].toolCalls, ["run_sql", "run_python"]);
+});
+
+test("native Skill runtime executes one adaptive run entrypoint against real SQL data", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "pi-skill-worker-"));
+  const csv = join(root, "fixture.csv");
+  const skillDir = join(root, "skills", "distribution-audit");
+  mkdirSync(join(skillDir, "scripts"), { recursive: true });
+  writeFileSync(csv, "segment,value\nA,10\nA,20\nB,5\n", "utf8");
+  writeFileSync(join(skillDir, "SKILL.md"), [
+    "---", "name: distribution-audit",
+    "description: Audit a numeric distribution when a group comparison depends on it.", "---",
+    "Use this local diagnostic when group comparisons depend on a numeric value.",
+  ].join("\n"), "utf8");
+  writeFileSync(join(skillDir, "scripts", "audit.py"), [
+    "from __future__ import annotations",
+    "def run(sql_results, skill_args):",
+    "    totals = sql_results.groupby(skill_args['group_col'])[skill_args['value_col']].sum()",
+    "    return {'applicable': True, 'checks': ['group totals'], 'max_total': int(totals.max())}",
+    "",
+  ].join("\n"), "utf8");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const python = process.env.PYTHON_BIN ?? (existsSync(VENV_PYTHON) ? VENV_PYTHON : "python");
+  const pool = new PyWorkerPool({ python, workerScript: WORKER, size: 1 });
+  t.after(async () => pool.close());
+  await pool.ready();
+  await pool.loadAll({ csv_path: csv, table_name: "main_table" });
+
+  const runtime = await NativeSkillRuntime.load([join(root, "skills")]);
+  const state = new ResearchState({ goal: "audit totals", maxQuestions: 1 });
+  state.openQuestion({ question: "Are group totals valid?", category: "exploratory" });
+  const tools = createNativeSkillTools(runtime, { state, pool });
+  await findTool(tools, "read_skill").execute("1", { name: "distribution-audit" });
+  const result = await findTool(tools, "run_skill_python").execute("2", {
+    skill_name: "distribution-audit", script: "scripts/audit.py", question_id: "q_001",
+    sql: "SELECT segment, value FROM main_table",
+    arguments: { group_col: "segment", value_col: "value" },
+  });
+  const payload = JSON.parse(resultText(result));
+  assert.equal(payload.applicable, true);
+  assert.equal(payload.max_total, 30);
+  assert.equal(runtime.executionAttempts[0].status, "success");
+  assert.equal(runtime.executions.length, 1);
+  assert.equal(state.nodes[0].evidence.length, 1);
 });
