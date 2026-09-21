@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
+import { spawnSync } from "node:child_process";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { NativeSkillRuntime, auditNativeSkillDirectory } from "./native-skills.mjs";
@@ -34,6 +35,15 @@ function safeSkillName(name) {
 
 function yamlString(value) {
   return JSON.stringify(String(value));
+}
+
+function pythonCommand() {
+  const configured = process.env.PYTHON?.trim();
+  if (configured) return configured;
+  const local = process.platform === "win32"
+    ? resolve(".venv", "Scripts", "python.exe")
+    : resolve(".venv", "bin", "python");
+  return existsSync(local) ? local : "python";
 }
 
 export function validateCreatorEpisodes(episodes) {
@@ -193,6 +203,20 @@ export class SkillCreatorWorkspace {
         : [];
       if (scripts.length && !tests.length) {
         errors.push(`${skill.name} includes executable scripts but no Python test asset`);
+      }
+      for (const testPath of tests) {
+        const relativeTest = join("tests", String(testPath));
+        const result = spawnSync(pythonCommand(), [relativeTest], {
+          cwd: skillDir,
+          encoding: "utf8",
+          timeout: 30_000,
+          maxBuffer: 1_000_000,
+        });
+        if (result.error || result.status !== 0) {
+          const detail = [result.error?.message, result.stdout, result.stderr]
+            .filter(Boolean).join("\n").trim().slice(-4_000);
+          errors.push(`${skill.name} Python test failed (${relativeTest}): ${detail || `exit ${result.status}`}`);
+        }
       }
     }
     return {

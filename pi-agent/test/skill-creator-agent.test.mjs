@@ -146,3 +146,27 @@ test("creator validation returns training-literal findings to the agent", async 
   assert.match(validation.errors.join("\n"), /forbidden-training-literal.*private_training_column/);
   workspace.cleanup();
 });
+
+test("creator validation executes generated Python tests", async (t) => {
+  const parent = mkdtempSync(join(tmpdir(), "pi-skill-creator-"));
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const workspace = new SkillCreatorWorkspace({ outputDir: join(parent, "skills"), episodes });
+  workspace.inspectEpisode("run-low");
+  workspace.createSkill({
+    name: "tested-method",
+    description: "Use this skill when an observed aggregate change has rival explanations.",
+    capabilityGap: "Weak runs did not distinguish rival explanations.",
+    instructions: "Use this skill when explanations compete. Do not use it without computed evidence.",
+    evidenceEpisodeIds: ["run-low"],
+  });
+  workspace.writeAsset({
+    skillName: "tested-method", path: "scripts/method.py", content: "def answer(): return 1\n",
+  });
+  workspace.writeAsset({
+    skillName: "tested-method", path: "tests/test_method.py", content: "raise AssertionError('fixture failure')\n",
+  });
+  const validation = await workspace.validate();
+  assert.equal(validation.passed, false);
+  assert.match(validation.errors.join("\n"), /Python test failed.*fixture failure/s);
+  workspace.cleanup();
+});
