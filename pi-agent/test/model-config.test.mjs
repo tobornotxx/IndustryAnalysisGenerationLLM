@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   canonicalizeDeepSeekModel,
   DEFAULT_REASONING_EFFORT,
@@ -7,7 +10,12 @@ import {
   isDeepSeekPeak,
   makeDeepSeekV41FlashModel,
 } from "../src/model-config.mjs";
-import { createDeepSeek, makeGenerateJson, makeGenerateText } from "../src/agent.mjs";
+import {
+  createDeepSeek,
+  findDeepSeekApiKey,
+  makeGenerateJson,
+  makeGenerateText,
+} from "../src/agent.mjs";
 
 test("retired DeepSeek aliases resolve to the canonical V4.1 Flash ID", () => {
   assert.equal(canonicalizeDeepSeekModel("deepseek-v4-pro"), "deepseek-flash");
@@ -40,6 +48,21 @@ test("DeepSeek calls default to explicit thinking mode", () => {
   assert.equal(DEFAULT_REASONING_EFFORT, "medium");
   assert.equal(handle.reasoning, "medium");
   assert.equal(handle.model.reasoning, true);
+});
+
+test("DeepSeek key prefers env and falls back to the project legacy config", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-deepseek-config-"));
+  const nested = join(root, ".worktrees", "industry");
+  const configDir = join(root, "MyDataStorm", "datastorm");
+  mkdirSync(nested, { recursive: true });
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(join(configDir, "llm_config.json"), JSON.stringify({ api_key: "legacy-key" }));
+
+  assert.equal(findDeepSeekApiKey({ env: {}, startDir: nested }), "legacy-key");
+  assert.equal(
+    findDeepSeekApiKey({ env: { DEEPSEEK_API_KEY: "env-key" }, startDir: nested }),
+    "env-key",
+  );
 });
 
 function fakeModels(events) {

@@ -14,6 +14,8 @@ import { Agent } from "@earendil-works/pi-agent-core";
 import { createModels } from "@earendil-works/pi-ai";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { Type } from "@sinclair/typebox";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { PyWorkerPool } from "./py-worker.mjs";
 import { Planner } from "./planner.mjs";
 import {
@@ -95,12 +97,43 @@ export function terminalStreamMessage(event) {
   return null;
 }
 
+/**
+ * Keep the JS runtime compatible with the project's existing credential file.
+ * Explicit environment configuration always wins; the legacy file is only a
+ * fallback, matching run_on_benchmark/scorer_config.py.
+ */
+export function findDeepSeekApiKey({ env = process.env, startDir = process.cwd() } = {}) {
+  if (env.DEEPSEEK_API_KEY?.trim()) return env.DEEPSEEK_API_KEY.trim();
+  let current = resolve(startDir);
+  while (true) {
+    const candidate = join(current, "MyDataStorm", "datastorm", "llm_config.json");
+    if (existsSync(candidate)) {
+      try {
+        const config = JSON.parse(readFileSync(candidate, "utf8"));
+        const key = (config.default?.api_key ?? config.api_key ?? "").trim();
+        if (key) return key;
+      } catch {
+        // Invalid legacy config is equivalent to a missing fallback. The
+        // provider will surface its normal authentication error if needed.
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return "";
+}
+
 /** 建 DeepSeek 模型句柄 + 与 pi 的 streamFn 桥接。 */
 export function createDeepSeek({
   model = DEEPSEEK_CANONICAL_MODEL,
   reasoning = DEFAULT_REASONING_EFFORT,
   now = new Date(),
 } = {}) {
+  const apiKey = findDeepSeekApiKey();
+  if (apiKey && !process.env.DEEPSEEK_API_KEY?.trim()) {
+    process.env.DEEPSEEK_API_KEY = apiKey;
+  }
   const models = createModels();
   models.setProvider(deepseekProvider());
   const canonical = canonicalizeDeepSeekModel(model);
