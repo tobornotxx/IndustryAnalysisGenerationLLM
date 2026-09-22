@@ -121,10 +121,56 @@ test("native Skill runtime executes one adaptive run entrypoint against real SQL
     sql: "SELECT segment, value FROM main_table",
     arguments: { group_col: "segment", value_col: "value" },
   });
+  assert.doesNotMatch(resultText(result), /^Python execution error:/);
   const payload = JSON.parse(resultText(result));
   assert.equal(payload.applicable, true);
   assert.equal(payload.max_total, 30);
   assert.equal(runtime.executionAttempts[0].status, "success");
   assert.equal(runtime.executions.length, 1);
   assert.equal(state.nodes[0].evidence.length, 1);
+});
+
+test("native Skill runtime repairs surrogate-escaped text before pandas processing", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "pi-skill-unicode-"));
+  const csv = join(root, "fixture.csv");
+  const skillDir = join(root, "skills", "unicode-audit");
+  mkdirSync(join(skillDir, "scripts"), { recursive: true });
+  writeFileSync(csv, "segment,value\nA,10\n", "utf8");
+  writeFileSync(join(skillDir, "SKILL.md"), [
+    "---", "name: unicode-audit",
+    "description: Check text safely when imported data contains legacy bytes.", "---",
+    "Run the bundled audit only when text quality matters.",
+  ].join("\n"), "utf8");
+  writeFileSync(join(skillDir, "scripts", "audit.py"), [
+    "import pandas as pd",
+    "def run(sql_results, skill_args):",
+    "    values = [sql_results.iloc[0]['dirty'], skill_args['dirty']]",
+    "    frame = pd.DataFrame({'text': values})",
+    "    return {'values': frame['text'].tolist()}",
+    "",
+  ].join("\n"), "utf8");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const python = process.env.PYTHON_BIN ?? (existsSync(VENV_PYTHON) ? VENV_PYTHON : "python");
+  const pool = new PyWorkerPool({ python, workerScript: WORKER, size: 1 });
+  t.after(async () => pool.close());
+  await pool.ready();
+  await pool.loadAll({ csv_path: csv, table_name: "main_table" });
+
+  const runtime = await NativeSkillRuntime.load([join(root, "skills")]);
+  const state = new ResearchState({ goal: "audit text", maxQuestions: 1 });
+  state.openQuestion({ question: "Is the text usable?", category: "exploratory" });
+  const tools = createNativeSkillTools(runtime, { state, pool });
+  await findTool(tools, "read_skill").execute("1", { name: "unicode-audit" });
+  const result = await findTool(tools, "run_skill_python").execute("2", {
+    skill_name: "unicode-audit", script: "scripts/audit.py", question_id: "q_001",
+    sql: "SELECT 'safe' AS dirty FROM main_table",
+    arguments: { dirty: `legacy${String.fromCharCode(0xDC94)}quote` },
+  });
+  assert.doesNotMatch(resultText(result), /^Python execution error:/);
+  const payload = JSON.parse(resultText(result));
+  assert.equal(payload.values[0], "safe");
+  assert.match(payload.values[1], /^legacy.+quote$/);
+  assert.doesNotThrow(() => Buffer.from(payload.values[1], "utf8"));
+  assert.equal(runtime.executionAttempts[0].status, "success");
 });

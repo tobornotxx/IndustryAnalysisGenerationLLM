@@ -40,6 +40,36 @@ for _p in (_RUN_ON_BENCH, _MYDATASTORM):
 from datastorm_adapter.csv_db_bridge import CsvDatabaseBridge  # noqa: E402
 
 
+def _repair_surrogateescaped_text(value: str) -> str:
+    """Recover legacy Windows bytes decoded through Python's surrogateescape."""
+    repaired: list[str] = []
+    for char in value:
+        codepoint = ord(char)
+        if 0xDC80 <= codepoint <= 0xDCFF:
+            try:
+                repaired.append(bytes([codepoint - 0xDC00]).decode("cp1252"))
+            except UnicodeDecodeError:
+                repaired.append("\ufffd")
+        elif 0xD800 <= codepoint <= 0xDFFF:
+            repaired.append("\ufffd")
+        else:
+            repaired.append(char)
+    return "".join(repaired)
+
+
+def _sanitize_unicode(value):
+    if isinstance(value, str):
+        return _repair_surrogateescaped_text(value)
+    if isinstance(value, dict):
+        return {
+            _repair_surrogateescaped_text(str(key)): _sanitize_unicode(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_unicode(item) for item in value]
+    return value
+
+
 class Worker:
     """持有一个 CsvDatabaseBridge，处理来自 harness 的操作请求。"""
 
@@ -78,6 +108,7 @@ class Worker:
 
     def op_sql(self, sql: str, max_rows: int = 50) -> dict:
         """执行 SQL，返回 executor 可读的文本摘要 + 行数。"""
+        sql = _repair_surrogateescaped_text(sql)
         _, summary = self._require_bridge().execute_sql(sql, max_rows=max_rows)
         return {"summary": summary}
 
@@ -87,6 +118,8 @@ class Worker:
         沙箱已预注入 numpy/pandas/scipy/sklearn/statsmodels/duckdb/ruptures 等，
         见 CsvDatabaseBridge.execute_python_from_sql。
         """
+        sql = _repair_surrogateescaped_text(sql)
+        code = _repair_surrogateescaped_text(code)
         return {"output": self._require_bridge().execute_python_from_sql(sql, code)}
 
     def op_tables(self) -> dict:
@@ -153,7 +186,7 @@ def main() -> None:
                 "error": f"{type(e).__name__}: {e}",
                 "traceback": traceback.format_exc(limit=6),
             }
-        sys.stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
+        sys.stdout.write(json.dumps(_sanitize_unicode(resp), ensure_ascii=False) + "\n")
         sys.stdout.flush()
 
 
