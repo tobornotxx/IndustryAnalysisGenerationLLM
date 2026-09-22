@@ -110,7 +110,7 @@ export function prepareValidationPlan(candidatePackage, {
 
 export async function prepareDirectoryValidationPlan(skillRoot, {
   outputDir, caseIds = ["flag-9", "flag-10", "flag-11", "flag-12"], agentRuns = 3,
-  experimentTag = "native-v1", skillNames = [],
+  experimentTag = "native-v1", skillNames = [], controlExperimentId = null,
 } = {}) {
   if (!Number.isInteger(agentRuns) || agentRuns < 2) throw new Error("agentRuns must be at least 2");
   caseIds.forEach((caseId) => assertCaseSplit("insightbench-overhaul", caseId, "source-valid"));
@@ -125,7 +125,10 @@ export async function prepareDirectoryValidationPlan(skillRoot, {
   if (missingNames.length) throw new Error(`unknown candidate skill(s): ${missingNames.join(", ")}`);
   mkdirSync(outputDir, { recursive: true });
   const validationVersion = experimentTag || "native-v1";
-  const controlExperimentId = `skillval-${validationVersion}-shared-control`;
+  const resolvedControlExperimentId = controlExperimentId
+    ? String(controlExperimentId).trim()
+    : `skillval-${validationVersion}-shared-control`;
+  if (!resolvedControlExperimentId) throw new Error("control experiment id must not be empty");
   const plans = [];
   for (const skill of selectedSkills) {
     const candidateRoot = resolve(outputDir, `candidate-${skill.name}`);
@@ -139,7 +142,7 @@ export async function prepareDirectoryValidationPlan(skillRoot, {
     for (const caseId of caseIds) {
       for (let agentRun = 1; agentRun <= agentRuns; agentRun += 1) {
         tasks.push({
-          experiment_id: controlExperimentId,
+          experiment_id: resolvedControlExperimentId,
           skill_id: skill.name,
           arm: "control",
           system_id: "pi-core",
@@ -174,7 +177,7 @@ export async function prepareDirectoryValidationPlan(skillRoot, {
     experiment_tag: validationVersion,
     agent_runs: agentRuns,
     case_ids: caseIds,
-    shared_control_experiment_id: controlExperimentId,
+    shared_control_experiment_id: resolvedControlExperimentId,
     plans,
   };
 }

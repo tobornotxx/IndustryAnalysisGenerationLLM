@@ -89,9 +89,14 @@ test("directory validation plan isolates each physical PI Skill", async () => {
   const selected = await prepareDirectoryValidationPlan(skillRoot, {
     outputDir: selectedOutputDir, caseIds: ["flag-9"], agentRuns: 3,
     experimentTag: "selected-native", skillNames: ["first-method"],
+    controlExperimentId: "skillval-prior-shared-control",
   });
   assert.deepEqual(selected.plans.map((item) => item.skill_id), ["first-method"]);
   assert.equal(selected.plans[0].tasks.length, 6);
+  assert.equal(selected.shared_control_experiment_id, "skillval-prior-shared-control");
+  assert.ok(selected.plans[0].tasks
+    .filter((task) => task.arm === "control")
+    .every((task) => task.experiment_id === "skillval-prior-shared-control"));
   await assert.rejects(prepareDirectoryValidationPlan(skillRoot, {
     outputDir: join(root, "unknown-validation"), caseIds: ["flag-9"], agentRuns: 3,
     skillNames: ["missing-method"],

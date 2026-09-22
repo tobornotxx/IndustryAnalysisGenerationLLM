@@ -148,6 +148,7 @@ if (command === "mine") {
     agentRuns: Number(arg("agent-runs", 3)),
     experimentTag: arg("tag", "native-v1"),
     skillNames: arg("skills", "").split(",").map((value) => value.trim()).filter(Boolean),
+    controlExperimentId: arg("control-experiment-id", null),
   });
   writeJsonExclusive(required("output"), plan);
 } else if (command === "collect-validation") {
