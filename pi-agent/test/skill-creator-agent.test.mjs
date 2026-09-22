@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { NativeSkillRuntime } from "../src/native-skills.mjs";
 import {
+  creatorSystemPrompt,
   SkillCreatorWorkspace,
   createSkillCreatorTools,
   validateCreatorEpisodes,
@@ -180,6 +181,17 @@ test("creator enforces the experiment's candidate Skill budget", (t) => {
     /skill creation limit reached: 1/,
   );
   workspace.cleanup();
+});
+
+test("creator revision prompt preserves breadth and targets discovery recall", () => {
+  const prompt = creatorSystemPrompt(1, {
+    seedSkill: { instructions: "Seed method", provenance: { compared_case_ids: ["flag-1"] } },
+    revisionBrief: "Coverage fell while precision rose.",
+  });
+  assert.match(prompt, /Create exactly one evidence-backed revision/);
+  assert.match(prompt, /improve DISCOVERY RECALL/);
+  assert.match(prompt, /without replacing the rest of the agent's hypothesis search/);
+  assert.match(prompt, /Coverage fell while precision rose/);
 });
 
 test("creator validation returns training-literal findings to the agent", async (t) => {

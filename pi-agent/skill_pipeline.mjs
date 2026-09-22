@@ -1,5 +1,6 @@
 /** Offline-first CLI for mining, extracting, validating, auditing, and freezing skills. */
 import { readFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import {
   auditSkillPackage, freezeSkillPackage, generalizeCandidates, mineEpisodes,
   validateAblations, writeJsonExclusive,
@@ -77,6 +78,12 @@ if (command === "mine") {
   const deepseek = createDeepSeek({
     model: arg("model", "deepseek-flash"), reasoning: arg("reasoning", "medium"),
   });
+  const seedSkillDir = arg("seed-skill-dir");
+  const seedSkill = seedSkillDir ? {
+    name: basename(seedSkillDir),
+    instructions: readFileSync(join(seedSkillDir, "SKILL.md"), "utf8"),
+    provenance: readJson(join(seedSkillDir, "provenance.json")),
+  } : null;
   const result = await runSkillCreatorAgent({
     episodes: corpus.episodes ?? [],
     deepseek,
@@ -87,6 +94,8 @@ if (command === "mine") {
     forbiddenTerms: arg("forbidden-terms")
       ? (readJson(arg("forbidden-terms")).terms ?? readJson(arg("forbidden-terms")))
       : [],
+    seedSkill,
+    revisionBrief: arg("revision-brief") ? readFileSync(arg("revision-brief"), "utf8") : "",
   });
   console.log(JSON.stringify({ ...result, usage: usage.toJSON() }, null, 2));
 } else if (command === "audit") {

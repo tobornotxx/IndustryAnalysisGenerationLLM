@@ -470,7 +470,21 @@ export function createSkillCreatorTools(workspace) {
   ];
 }
 
-function creatorSystemPrompt(maxSkills) {
+export function creatorSystemPrompt(maxSkills, { seedSkill = null, revisionBrief = "" } = {}) {
+  const revision = seedSkill ? `
+
+REVISION CYCLE
+Create exactly one evidence-backed revision of the seed Skill below. Preserve its useful analytical mechanism, but repair the validation failure described in the revision brief. The revision must improve DISCOVERY RECALL: it should open and rank an additional evidence branch without replacing the rest of the agent's hypothesis search, suppressing unrelated high-value branches, or merely shortening the final answer. Do not copy validation-case literals into the Skill. Re-ground every method in the source-train comparisons available through the tools.
+
+SEED SKILL:
+${seedSkill.instructions}
+
+SEED PROVENANCE:
+${JSON.stringify(seedSkill.provenance)}
+
+REVISION BRIEF:
+${revisionBrief || "Improve reference coverage and preserve search breadth."}
+` : "";
   return `You are a PI Skill Creator for a general-purpose PI agent that may optionally become a data-insight research agent by discovering and reading Skills.
 
 Your job in this cycle is specifically to create DISCOVERY Skills: reusable search policies that help the agent uncover additional decision-relevant patterns that weaker runs miss. Inspect scored source-train trajectories, compare stronger and weaker runs of the SAME case, identify the question or computation where the stronger path first gained reference coverage, and create at most ${maxSkills} physical Agent Skill${maxSkills === 1 ? "" : "s"}. The Skill is optional knowledge: at runtime the agent initially sees only its name and trigger description and independently decides whether to read or execute it. Do not assume forced prompt injection or a fixed workflow.
@@ -507,7 +521,7 @@ Executable Skill contract:
 
 Reject candidate ideas that are merely generic reminders, final-answer formatting, token/budget management, stopping rules, tool-use etiquette, or restatements of the base research loop. Also reject a candidate whose main purpose is only to validate, audit, falsify, clean, or calibrate an already discovered claim. Those may be useful validation Skills, but they do not test the discovery-transfer hypothesis in this cycle. A discovery Skill must change what hypotheses are generated, what evidence is searched, or which branch is explored next.
 
-Compare stronger and weaker trajectories before writing. Diagnose the discovery gap, create the smallest atomic Skill set needed, and prefer one strong Skill over several overlapping reminders. Use create_skill for SKILL.md, write_skill_asset for supporting files, validate_skill_set, fix all validation errors, then call submit_skill_set exactly once. The output must be a usable Skill directory, not JSON advice.`;
+Compare stronger and weaker trajectories before writing. Diagnose the discovery gap, create the smallest atomic Skill set needed, and prefer one strong Skill over several overlapping reminders. Use create_skill for SKILL.md, write_skill_asset for supporting files, validate_skill_set, fix all validation errors, then call submit_skill_set exactly once. The output must be a usable Skill directory, not JSON advice.${revision}`;
 }
 
 export async function runSkillCreatorAgent({
@@ -518,6 +532,8 @@ export async function runSkillCreatorAgent({
   maxTurns = 20,
   maxSkills = 3,
   forbiddenTerms = [],
+  seedSkill = null,
+  revisionBrief = "",
 }) {
   validateCreatorEpisodes(episodes);
   const workspace = new SkillCreatorWorkspace({
@@ -537,7 +553,7 @@ export async function runSkillCreatorAgent({
   }));
   const agent = new Agent({
     initialState: {
-      systemPrompt: `${creatorSystemPrompt(maxSkills)}\n\nAVAILABLE SOURCE-TRAIN EPISODES:\n${JSON.stringify(catalog)}`,
+      systemPrompt: `${creatorSystemPrompt(maxSkills, { seedSkill, revisionBrief })}\n\nAVAILABLE SOURCE-TRAIN EPISODES:\n${JSON.stringify(catalog)}`,
       model: deepseek.model,
       tools: createSkillCreatorTools(workspace),
     },
@@ -550,7 +566,9 @@ export async function runSkillCreatorAgent({
   });
   agent.shouldStopAfterTurn = () => turns >= maxTurns || workspace.submitted;
   try {
-    await agent.prompt("Mine same-case discovery gains and create the smallest evidence-backed set of transferable discovery Skills.");
+    await agent.prompt(seedSkill
+      ? "Revise the seed discovery Skill using source-train comparisons, validate it, and submit exactly one replacement Skill."
+      : "Mine same-case discovery gains and create the smallest evidence-backed set of transferable discovery Skills.");
     if (!workspace.submitted) throw new Error("skill creator stopped without submitting a validated skill set");
     return { output_dir: workspace.outputDir, turns, skills: [...workspace.skills.keys()] };
   } catch (error) {
