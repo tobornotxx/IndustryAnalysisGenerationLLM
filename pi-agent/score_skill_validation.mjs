@@ -1,5 +1,5 @@
 /** Score completed skill-validation predictions without regenerating them. */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -25,6 +25,7 @@ const judgeRun = Number(arg("judge-run", "1"));
 const modes = arg("modes", "primary");
 const dryRun = process.argv.includes("--dry-run");
 const skillFilter = new Set((arg("skills", "") ?? "").split(",").filter(Boolean));
+const caseFilter = new Set((arg("cases", "") ?? "").split(",").filter(Boolean));
 const treatedOnly = process.argv.includes("--treated-only");
 if (!Number.isInteger(judgeRun) || judgeRun < 1) throw new Error("judge-run must be a positive integer");
 
@@ -35,6 +36,7 @@ if (skillFilter.size && selectedPlans.length !== skillFilter.size) {
   throw new Error("--skills contains an id not present in the validation plan");
 }
 const plannedTasks = selectedPlans.flatMap((skillPlan) => skillPlan.tasks)
+  .filter((task) => !caseFilter.size || caseFilter.has(task.case_id))
   .filter((task) => !treatedOnly || task.arm === "treated");
 const tasks = deduplicateRunTasks(plannedTasks.map((task) => {
   const runDir = buildRunDirectory({
@@ -43,9 +45,20 @@ const tasks = deduplicateRunTasks(plannedTasks.map((task) => {
   });
   const predictionPath = join(runDir, "prediction.json");
   const scorePath = join(runDir, "scores", scorerId, `judge_run_${judgeRun}.json`);
+  let scoreExists = false;
+  const scoreFileExists = existsSync(scorePath);
+  if (scoreFileExists) {
+    try {
+      const score = JSON.parse(readFileSync(scorePath, "utf8"));
+      scoreExists = Number.isFinite(score?.semantic?.primary?.f1);
+    } catch {
+      scoreExists = false;
+    }
+  }
   return {
     ...task, predictionPath, scorePath,
-    predictionExists: existsSync(predictionPath), scoreExists: existsSync(scorePath),
+    predictionExists: existsSync(predictionPath), scoreExists,
+    invalidScoreExists: scoreFileExists && !scoreExists,
   };
 }));
 
@@ -67,6 +80,9 @@ const counts = { success: 0, failed: 0, skipped: 0, missing: 0 };
 for (const task of tasks) {
   if (task.scoreExists) { counts.skipped += 1; continue; }
   if (!task.predictionExists) { counts.missing += 1; continue; }
+  if (task.invalidScoreExists) {
+    renameSync(task.scorePath, `${task.scorePath}.invalid-${Date.now()}-${process.pid}`);
+  }
   const result = spawnSync(PYTHON, [
     "-m", "run_on_benchmark.score_prediction",
     "--prediction", task.predictionPath,

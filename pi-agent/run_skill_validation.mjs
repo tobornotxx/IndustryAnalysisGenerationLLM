@@ -19,6 +19,7 @@ const benchmarkDir = resolve(arg("benchmark-dir", resolve(HERE, "../run_on_bench
 const outRoot = resolve(arg("out-root", resolve(HERE, "../results/experiments")));
 const dryRun = has("dry-run");
 const skillFilter = new Set(arg("skills", "").split(",").filter(Boolean));
+const caseFilter = new Set(arg("cases", "").split(",").filter(Boolean));
 const treatedOnly = has("treated-only");
 const configArgs = [
   "--layers", arg("layers", "3"), "--questions", arg("questions", "2"),
@@ -32,6 +33,7 @@ if (skillFilter.size && selectedPlans.length !== skillFilter.size) {
   throw new Error("--skills contains an id not present in the validation plan");
 }
 const plannedTasks = selectedPlans.flatMap((skillPlan) => skillPlan.tasks)
+  .filter((task) => !caseFilter.size || caseFilter.has(task.case_id))
   .filter((task) => !treatedOnly || task.arm === "treated");
 const tasks = deduplicateRunTasks(plannedTasks.map((task) => {
   const runDir = buildRunDirectory({
