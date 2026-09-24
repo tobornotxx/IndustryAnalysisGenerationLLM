@@ -31,9 +31,14 @@ if (command === "mine") {
   const episodes = mineEpisodes(required("experiment-dir"), {
     scorerId: arg("scorer-id", "local-deepseek-v41-thinking-v2"),
     metric: arg("metric", "semantic.primary.f1"),
+    benchmarkDir: arg("benchmark-dir", null),
+    includeReferenceInsights: has("include-reference-insights"),
   });
   writeJsonExclusive(required("output"), {
-    schema_version: 1, split: "source-train", episodes,
+    schema_version: 2,
+    split: "source-train",
+    reference_access: has("include-reference-insights") ? "answer-informed-source-train" : "trajectory-only",
+    episodes,
   });
   console.log(`mined ${episodes.length} source-train episodes`);
 } else if (command === "extract") {
@@ -96,6 +101,8 @@ if (command === "mine") {
       : [],
     seedSkill,
     revisionBrief: arg("revision-brief") ? readFileSync(arg("revision-brief"), "utf8") : "",
+    referenceMode: arg("reference-mode", corpus.reference_access === "answer-informed-source-train"
+      ? "answer-informed-source-train" : "trajectory-only"),
   });
   console.log(JSON.stringify({ ...result, usage: usage.toJSON() }, null, 2));
 } else if (command === "audit") {

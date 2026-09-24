@@ -60,6 +60,34 @@ test("episode miner reads source-train immutable runs and ignores validation run
   assert.deepEqual(episodes[0].discovery_attribution.prediction_insights, ["a"]);
 });
 
+test("answer-informed mining attaches only source-train benchmark reference insights", () => {
+  const root = mkdtempSync(join(tmpdir(), "skill-corpus-"));
+  const benchmark = mkdtempSync(join(tmpdir(), "skill-benchmark-"));
+  const run = join(root, "flag-1", "agent_run_1");
+  mkdirSync(join(run, "scores", "judge"), { recursive: true });
+  mkdirSync(join(benchmark, "data", "notebooks"), { recursive: true });
+  writeFileSync(join(run, "manifest.json"), JSON.stringify({
+    status: "success", split: "source-train", benchmark_id: "insightbench-overhaul",
+    case_id: "flag-1", run_id: "run-informed", system_id: "pi-core", agent_run: 1,
+  }));
+  writeFileSync(join(run, "trajectory.jsonl"), `${JSON.stringify({ id: "q1", layer: 1, question: "q", answer: "a" })}\n`);
+  const predictionPath = join(run, "prediction.json");
+  writeFileSync(predictionPath, JSON.stringify({ pred_insights: ["a"] }));
+  const predictionSha256 = createHash("sha256").update(readFileSync(predictionPath)).digest("hex");
+  writeFileSync(join(run, "scores", "judge", "judge_run_1.json"), JSON.stringify({
+    prediction: predictionPath, prediction_sha256: predictionSha256, case_id: "flag-1", judge_run: 1,
+    scorer_id: "judge", semantic: { primary: { f1: 0.5, matrix: [[0.75]] } }, usage: { calls: 1 },
+  }));
+  writeFileSync(join(benchmark, "data", "notebooks", "flag-1.json"), JSON.stringify({
+    insights: ["The reference mechanism is present."],
+  }));
+  const episodes = mineEpisodes(root, {
+    scorerId: "judge", benchmarkDir: benchmark, includeReferenceInsights: true,
+  });
+  assert.deepEqual(episodes[0].reference_insights, ["The reference mechanism is present."]);
+  assert.equal(episodes[0].reference_access, "answer-informed-source-train");
+});
+
 test("extraction and generalization are separate injected agent calls", async () => {
   const calls = [];
   const generateJson = async (prompt) => {

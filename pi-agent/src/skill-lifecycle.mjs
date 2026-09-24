@@ -138,8 +138,13 @@ export function mineEpisodes(experimentDir, {
   split = "source-train",
   scorerId = "local-deepseek-v41-thinking-v2",
   metric = "semantic.primary.f1",
+  benchmarkDir = null,
+  includeReferenceInsights = false,
 } = {}) {
   if (split !== "source-train") throw new Error("skill mining is restricted to source-train");
+  if (includeReferenceInsights && !benchmarkDir) {
+    throw new Error("includeReferenceInsights requires benchmarkDir");
+  }
   const episodes = [];
   for (const manifestPath of walk(experimentDir, "manifest.json").sort()) {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -167,6 +172,14 @@ export function mineEpisodes(experimentDir, {
     if (!scores.length || !existsSync(trajectoryPath)) continue;
     const prediction = JSON.parse(readFileSync(predictionPath, "utf8"));
     const steps = readFileSync(trajectoryPath, "utf8").split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    let referenceInsights = undefined;
+    if (includeReferenceInsights) {
+      const referencePath = join(resolve(benchmarkDir), "data", "notebooks", `${manifest.case_id}.json`);
+      if (!existsSync(referencePath)) throw new Error(`reference insights are missing: ${referencePath}`);
+      const reference = JSON.parse(readFileSync(referencePath, "utf8"));
+      referenceInsights = (reference.insights ?? []).map(String).map((value) => value.trim()).filter(Boolean);
+      if (!referenceInsights.length) throw new Error(`reference insights are empty: ${referencePath}`);
+    }
     episodes.push({
       episode_id: manifest.run_id,
       benchmark_id: manifest.benchmark_id,
@@ -194,6 +207,8 @@ export function mineEpisodes(experimentDir, {
       discovery_attribution: buildDiscoveryAttribution(
         prediction, validatedScores.map((item) => item.artifact), metric,
       ),
+      reference_insights: referenceInsights,
+      reference_access: includeReferenceInsights ? "answer-informed-source-train" : "trajectory-only",
       source_manifest: manifestPath,
       steps: steps.map((step) => ({
         node_id: step.id,

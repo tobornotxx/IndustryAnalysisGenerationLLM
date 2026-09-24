@@ -82,6 +82,28 @@ test("creator rejects missing or degenerate score evidence", () => {
   );
 });
 
+test("answer-informed creator requires references and exposes missed reference text only in that mode", () => {
+  assert.throws(
+    () => validateCreatorEpisodes(episodes, { referenceMode: "answer-informed-source-train" }),
+    /requires source-train reference insights/,
+  );
+  const informed = episodes.map((episode, index) => ({
+    ...episode,
+    reference_insights: [`reference mechanism ${index}`],
+  }));
+  validateCreatorEpisodes(informed, { referenceMode: "answer-informed-source-train" });
+  const parent = mkdtempSync(join(tmpdir(), "pi-skill-creator-"));
+  const workspace = new SkillCreatorWorkspace({
+    outputDir: join(parent, "skills"), episodes: informed, referenceMode: "answer-informed-source-train",
+  });
+  workspace.inspectEpisode("run-high");
+  workspace.inspectEpisode("run-low");
+  const comparison = workspace.compareEpisodes("run-high", "run-low");
+  assert.deepEqual(comparison.gained_reference_insights, ["reference mechanism 1"]);
+  workspace.cleanup();
+  rmSync(parent, { recursive: true, force: true });
+});
+
 test("creator writes a physical PI Skill with exact episode provenance", async (t) => {
   validateCreatorEpisodes(episodes);
   const parent = mkdtempSync(join(tmpdir(), "pi-skill-creator-"));
@@ -192,6 +214,12 @@ test("creator revision prompt preserves breadth and targets discovery recall", (
   assert.match(prompt, /improve DISCOVERY RECALL/);
   assert.match(prompt, /without replacing the rest of the agent's hypothesis search/);
   assert.match(prompt, /Coverage fell while precision rose/);
+});
+
+test("answer-informed prompt forbids copying source-train answer literals", () => {
+  const prompt = creatorSystemPrompt(1, { referenceMode: "answer-informed-source-train" });
+  assert.match(prompt, /ANSWER-INFORMED SOURCE-TRAIN MODE/);
+  assert.match(prompt, /Never copy a reference insight/);
 });
 
 test("creator validation returns training-literal findings to the agent", async (t) => {

@@ -46,7 +46,7 @@ function pythonCommand() {
   return existsSync(local) ? local : "python";
 }
 
-export function validateCreatorEpisodes(episodes) {
+export function validateCreatorEpisodes(episodes, { referenceMode = "trajectory-only" } = {}) {
   if (!episodes?.length) throw new Error("skill creator requires source-train episodes");
   if (episodes.some((episode) => episode.split !== "source-train")) {
     throw new Error("skill creator may inspect source-train episodes only");
@@ -64,10 +64,19 @@ export function validateCreatorEpisodes(episodes) {
   if (episodes.length > 1 && distinct.size < 2) {
     throw new Error("skill creator requires a non-degenerate quality signal; all episode scores are equal");
   }
+  if (referenceMode === "answer-informed-source-train") {
+    const missingReferences = episodes.filter((episode) => !(episode.reference_insights ?? []).length);
+    if (missingReferences.length) {
+      throw new Error(`answer-informed creator requires source-train reference insights; missing=${missingReferences.length}`);
+    }
+  }
+  if (!new Set(["trajectory-only", "answer-informed-source-train"]).has(referenceMode)) {
+    throw new Error(`unknown creator reference mode: ${referenceMode}`);
+  }
 }
 
 export class SkillCreatorWorkspace {
-  constructor({ outputDir, episodes, maxSkills = 3, forbiddenTerms = [] }) {
+  constructor({ outputDir, episodes, maxSkills = 3, forbiddenTerms = [], referenceMode = "trajectory-only" }) {
     if (!Number.isInteger(maxSkills) || maxSkills < 1) {
       throw new Error("maxSkills must be a positive integer");
     }
@@ -79,6 +88,7 @@ export class SkillCreatorWorkspace {
     this.skills = new Map();
     this.maxSkills = maxSkills;
     this.forbiddenTerms = uniqueStrings(forbiddenTerms);
+    this.referenceMode = referenceMode;
     this.trace = [];
     this.submitted = false;
     if (existsSync(this.outputDir)) throw new Error(`refusing to overwrite skill output: ${this.outputDir}`);
@@ -149,6 +159,14 @@ export class SkillCreatorWorkspace {
       gained_reference_slots: gainedReferenceSlots,
       lost_reference_slots: lostReferenceSlots,
       gained_prediction_insights: gainedInsights,
+      reference_mode: this.referenceMode,
+      gained_reference_insights: this.referenceMode === "answer-informed-source-train"
+        ? gainedReferenceSlots.map((index) => positive.reference_insights[index]).filter(Boolean)
+        : undefined,
+      missed_reference_insights_in_positive: this.referenceMode === "answer-informed-source-train"
+        ? positive.reference_insights.filter((_insight, index) => !gainedReferenceSlots.includes(index)
+          && Number(pos.reference_best_match[index] ?? 0) < threshold)
+        : undefined,
       positive_question_path: positive.steps.map((step) => ({
         node_id: step.node_id,
         layer: step.layer,
@@ -233,6 +251,7 @@ export class SkillCreatorWorkspace {
       schema_version: 1,
       skill_name: skillName,
       capability_type: "discovery",
+      reference_mode: this.referenceMode,
       capability_gap: capabilityGap.trim(),
       discovery_gain: discoveryGain.trim(),
       evidence_episode_ids: evidence,
@@ -373,6 +392,7 @@ export class SkillCreatorWorkspace {
       skills: [...this.skills.keys()],
       inspected_episode_ids: [...this.inspected],
       validation,
+      reference_mode: this.referenceMode,
     }, null, 2)}\n`, "utf8");
     renameSync(this.stagingDir, this.outputDir);
     this.submitted = true;
@@ -470,7 +490,13 @@ export function createSkillCreatorTools(workspace) {
   ];
 }
 
-export function creatorSystemPrompt(maxSkills, { seedSkill = null, revisionBrief = "" } = {}) {
+export function creatorSystemPrompt(maxSkills, {
+  seedSkill = null, revisionBrief = "", referenceMode = "trajectory-only",
+} = {}) {
+  const references = referenceMode === "answer-informed-source-train" ? `
+
+ANSWER-INFORMED SOURCE-TRAIN MODE
+The inspected source-train episodes include their benchmark reference insights. Use those answers only to diagnose which analytical mechanisms the trajectories missed and to distinguish a genuine discovery gap from wording noise. Never copy a reference insight, dataset name, column name, entity, date, number, or answer-specific sequence into a Skill. The deliverable remains a dataset-independent research method, and all later validation cases must remain unseen.` : "";
   const revision = seedSkill ? `
 
 REVISION CYCLE
@@ -521,7 +547,7 @@ Executable Skill contract:
 
 Reject candidate ideas that are merely generic reminders, final-answer formatting, token/budget management, stopping rules, tool-use etiquette, or restatements of the base research loop. Also reject a candidate whose main purpose is only to validate, audit, falsify, clean, or calibrate an already discovered claim. Those may be useful validation Skills, but they do not test the discovery-transfer hypothesis in this cycle. A discovery Skill must change what hypotheses are generated, what evidence is searched, or which branch is explored next.
 
-Compare stronger and weaker trajectories before writing. Diagnose the discovery gap, create the smallest atomic Skill set needed, and prefer one strong Skill over several overlapping reminders. Use create_skill for SKILL.md, write_skill_asset for supporting files, validate_skill_set, fix all validation errors, then call submit_skill_set exactly once. The output must be a usable Skill directory, not JSON advice.${revision}`;
+Compare stronger and weaker trajectories before writing. Diagnose the discovery gap, create the smallest atomic Skill set needed, and prefer one strong Skill over several overlapping reminders. Use create_skill for SKILL.md, write_skill_asset for supporting files, validate_skill_set, fix all validation errors, then call submit_skill_set exactly once. The output must be a usable Skill directory, not JSON advice.${references}${revision}`;
 }
 
 export async function runSkillCreatorAgent({
@@ -534,10 +560,11 @@ export async function runSkillCreatorAgent({
   forbiddenTerms = [],
   seedSkill = null,
   revisionBrief = "",
+  referenceMode = "trajectory-only",
 }) {
-  validateCreatorEpisodes(episodes);
+  validateCreatorEpisodes(episodes, { referenceMode });
   const workspace = new SkillCreatorWorkspace({
-    outputDir, episodes, maxSkills, forbiddenTerms,
+    outputDir, episodes, maxSkills, forbiddenTerms, referenceMode,
   });
   const catalog = episodes.map((episode) => ({
     episode_id: episode.episode_id,
@@ -553,7 +580,7 @@ export async function runSkillCreatorAgent({
   }));
   const agent = new Agent({
     initialState: {
-      systemPrompt: `${creatorSystemPrompt(maxSkills, { seedSkill, revisionBrief })}\n\nAVAILABLE SOURCE-TRAIN EPISODES:\n${JSON.stringify(catalog)}`,
+      systemPrompt: `${creatorSystemPrompt(maxSkills, { seedSkill, revisionBrief, referenceMode })}\n\nAVAILABLE SOURCE-TRAIN EPISODES:\n${JSON.stringify(catalog)}`,
       model: deepseek.model,
       tools: createSkillCreatorTools(workspace),
     },
